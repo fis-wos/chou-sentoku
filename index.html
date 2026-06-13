@@ -152,13 +152,20 @@ const Input = {
     addEventListener("blur", () => { this.keys.clear(); });
 
     // ───── タッチ操作 → 仮想キー入力 ─────
-    // iOS Safari の pointer events が連続発火/誤キャンセルで不安定なため
-    // touch events 一本で実装。マウスは別途 mouse events で対応。
+    // iOS Safari/Chrome/LINE内ブラウザは touchstart/touchend が高速連続発火することがあるため
+    // setKeyUp を 80ms 遅延させ、その間に touchstart が来たらリリースをキャンセル
     const touchRoot = document.getElementById("touch");
     if (touchRoot) {
       const buttons = Array.from(touchRoot.querySelectorAll(".tbtn"));
+      const releaseTimers = new Map(); // btn → setTimeout ID
       const setKeyDown = (btn) => {
-        if (!btn || btn.classList.contains("active")) return;
+        if (!btn) return;
+        // 進行中の解除タイマーをキャンセル（連続発火を吸収）
+        if (releaseTimers.has(btn)){
+          clearTimeout(releaseTimers.get(btn));
+          releaseTimers.delete(btn);
+        }
+        if (btn.classList.contains("active")) return;
         const k = btn.dataset.key;
         if (!this.keys.has(k)) this.pressed.add(k);
         this.keys.add(k);
@@ -166,6 +173,22 @@ const Input = {
       };
       const setKeyUp = (btn) => {
         if (!btn) return;
+        // 既存のタイマーがあれば差し替え
+        if (releaseTimers.has(btn)) clearTimeout(releaseTimers.get(btn));
+        const tid = setTimeout(() => {
+          const k = btn.dataset.key;
+          this.keys.delete(k);
+          btn.classList.remove("active");
+          releaseTimers.delete(btn);
+        }, 80); // 80ms 遅延でWebKit系の連続発火を吸収
+        releaseTimers.set(btn, tid);
+      };
+      const setKeyUpImmediate = (btn) => {
+        if (!btn) return;
+        if (releaseTimers.has(btn)){
+          clearTimeout(releaseTimers.get(btn));
+          releaseTimers.delete(btn);
+        }
         const k = btn.dataset.key;
         this.keys.delete(k);
         btn.classList.remove("active");
@@ -196,9 +219,9 @@ const Input = {
           if (!activeTouch.has(t.identifier)) continue;
           const cur = activeTouch.get(t.identifier);
           const next = findButtonAt(t.clientX, t.clientY);
-          // 別のボタンに移った時のみ切替。隙間/外に出ても元を維持
+          // 別のボタンに移った時のみ切替（即時解除）。隙間/外に出ても元を維持
           if (next && next !== cur){
-            setKeyUp(cur);
+            setKeyUpImmediate(cur);
             setKeyDown(next);
             activeTouch.set(t.identifier, next);
           }
@@ -208,13 +231,12 @@ const Input = {
         ev.preventDefault();
         for (const t of ev.changedTouches){
           if (!activeTouch.has(t.identifier)) continue;
-          setKeyUp(activeTouch.get(t.identifier));
+          setKeyUp(activeTouch.get(t.identifier)); // 遅延解除
           activeTouch.delete(t.identifier);
         }
       };
       touchRoot.addEventListener("touchend", onTouchEnd, { passive: false });
-      // touchcancel は iOS Safari の長押し誤発火対策で「無視」
-      // 本当に指が離れる時は touchend が来る
+      // touchcancel は無視（iOS Safari の長押し誤発火対策）
       touchRoot.addEventListener("touchcancel", (ev) => {
         ev.preventDefault();
       }, { passive: false });
@@ -230,13 +252,13 @@ const Input = {
         if (!mouseBtn) return;
         const next = findButtonAt(ev.clientX, ev.clientY);
         if (next && next !== mouseBtn){
-          setKeyUp(mouseBtn);
+          setKeyUpImmediate(mouseBtn);
           setKeyDown(next);
           mouseBtn = next;
         }
       });
       window.addEventListener("mouseup", () => {
-        if (mouseBtn){ setKeyUp(mouseBtn); mouseBtn = null; }
+        if (mouseBtn){ setKeyUpImmediate(mouseBtn); mouseBtn = null; }
       });
 
       // 長押し選択メニュー抑制
