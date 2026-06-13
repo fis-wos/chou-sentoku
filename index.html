@@ -61,6 +61,11 @@
     border-radius: 16px;
     box-shadow: 0 0 6px rgba(0,0,0,0.35) inset, 0 1px 3px rgba(0,0,0,0.3);
     transition: transform 50ms, background 50ms;
+    /* iOS Safari の長押しメニュー/選択を完全抑制 */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
   }
   .tbtn.sq { border-radius: 12px; }
   .tbtn.active { background: rgba(170, 0, 51, 0.55); transform: scale(0.95); }
@@ -184,11 +189,11 @@ const Input = {
         ev.preventDefault();
         const cur = activePtr.get(ev.pointerId);
         const next = findButtonAt(ev.clientX, ev.clientY);
-        if (next !== cur) {
+        // 別のボタンに移動した場合のみ切替。ボタン外（隙間）に出ても元のボタンを押し続け扱い
+        if (next && next !== cur){
           setKeyUp(cur);
-          if (next) setKeyDown(next);
-          if (next) activePtr.set(ev.pointerId, next);
-          else activePtr.delete(ev.pointerId);
+          setKeyDown(next);
+          activePtr.set(ev.pointerId, next);
         }
       };
       const onUp = (ev) => {
