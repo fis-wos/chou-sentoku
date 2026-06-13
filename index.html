@@ -1379,44 +1379,259 @@ class Player {
       ctx.fill();
       ctx.restore();
     }
-    // 本体絵文字
-    let emo;
-    if (this.crouch) emo = "🧎";
-    else if (!this.onGround) emo = "🤸";
-    else if (Math.abs(this.vx) > 10) emo = (Math.floor(performance.now()/180)%2===0?"🏃":"🤺");
-    else emo = "🤺";
-    // 鎧失った場合: 下着重ね
-    const size = 92;
-    ctx.font = `${size}px ${EMOJI_FONT}`;
-    ctx.textAlign="center"; ctx.textBaseline="middle";
-    // 超千徳モード: 金色グローを本体に
+    // ─── オリジナル・ドット絵描画 ───
+    // 24×32 ピクセル → 4倍拡大で 96×128 px に描画
+    const scale = 4;
+    let sprite;
+    if (this.crouch) sprite = PLAYER_SPRITES.crouch;
+    else if (!this.onGround) sprite = PLAYER_SPRITES.jump;
+    else if (Math.abs(this.vx) > 10){
+      const frame = Math.floor(performance.now()/140)%2;
+      sprite = frame===0 ? PLAYER_SPRITES.walkA : PLAYER_SPRITES.walkB;
+    }
+    else sprite = PLAYER_SPRITES.idle;
+    // 鎧失った場合は下着パターンに切替（顔・頭はそのまま、胴下が下着）
+    const palette = this.armor ? PLAYER_PALETTE : PLAYER_PALETTE_UNDIES;
+    // 超千徳モード: 金色グロー
     if (this.superMode>0){
       ctx.shadowColor = "#ffd700";
-      ctx.shadowBlur = 25;
+      ctx.shadowBlur = 18;
     }
-    if (this.facing<0){
-      ctx.save();
-      ctx.translate(sx, sy);
-      ctx.scale(-1,1);
-      ctx.fillText(emo, 0, 0);
-      if (!this.armor) ctx.fillText("🩲", 0, 8);
-      ctx.restore();
-    } else {
-      ctx.fillText(emo, sx, sy);
-      if (!this.armor) ctx.fillText("🩲", sx, sy+8);
-    }
+    const spriteW = sprite[0].length, spriteH = sprite.length;
+    const drawW = spriteW*scale, drawH = spriteH*scale;
+    drawPixelArt(ctx, sprite, palette, sx - drawW/2, sy - drawH/2, scale, this.facing<0);
     if (this.superMode>0){
       ctx.shadowBlur = 0;
     }
     // 攻撃時、手前に武器を強調
     if (this.attackAnim>0){
       ctx.font = `48px ${EMOJI_FONT}`;
+      ctx.textAlign="center"; ctx.textBaseline="middle";
       const w = this.weapon();
       ctx.fillText(w.emoji, sx + this.facing*46, sy);
     }
     ctx.restore();
   }
 }
+
+// ────────────────────────────────────────────────
+// ピクセルアート描画ユーティリティ
+// sprite: 文字配列。各文字はpaletteのキー、"."は透明
+// ────────────────────────────────────────────────
+function drawPixelArt(ctx, sprite, palette, x, y, scale, flip){
+  const h = sprite.length;
+  const w = sprite[0].length;
+  ctx.save();
+  if (flip){
+    ctx.translate(x + w*scale, y);
+    ctx.scale(-1, 1);
+    x = 0; y = 0;
+  }
+  for (let py=0; py<h; py++){
+    const row = sprite[py];
+    for (let px=0; px<w; px++){
+      const c = row.charAt(px);
+      if (c === '.' || c === ' ') continue;
+      const color = palette[c];
+      if (!color) continue;
+      ctx.fillStyle = color;
+      ctx.fillRect(x + px*scale, y + py*scale, scale, scale);
+    }
+  }
+  ctx.restore();
+}
+
+// 千徳一刀斎 — オリジナル和風侍ドット絵
+// 24列 × 32行 / 色キー: K黒 D暗灰 S銀 R赤鉢巻 H肌 B目 W白 N紺袴 O朱糸 Y金 T鞘茶
+const PLAYER_PALETTE = {
+  K: "#0a0a0e", D: "#2a2a30", S: "#a8a8b0",
+  R: "#c41e2a", O: "#7e1620",
+  H: "#f0c898", B: "#1a1015", W: "#f5f0e0",
+  N: "#1a2848", Y: "#d4a72c", T: "#5a3a1a",
+};
+// 鎧脱げ（下着姿）: 胴部の鎧色を肌色〜白褌に置換
+const PLAYER_PALETTE_UNDIES = {
+  ...PLAYER_PALETTE,
+  K: "#f0c898",  // 黒鎧 → 肌
+  D: "#dba878",  // 暗灰 → 肌影
+  S: "#f5dba8",  // 銀 → 肌ハイライト
+  O: "#ffffff",  // 朱糸 → 白褌
+  Y: "#ffffff",  // 金 → 白
+  N: "#ffffff",  // 紺袴 → 白褌
+};
+
+const PLAYER_SPRITES = {
+  idle: [
+    "........KKKKKKK.........",
+    ".......KDDDDDDDK........",
+    "......KDDDDDDDDDK.......",
+    "......RRRRRRRRRRR.......",
+    "......RRRRRRRRRRR.......",
+    "......RHHHHHHHHHR.......",
+    "......RHBHHHHHBHR.......",
+    "......RHHHHHHHHHR.......",
+    ".......HHHWWWHHH........",
+    ".......HHHHHHHHH........",
+    "......KKKKKKKKKKK.......",
+    ".....KKSYSYSYSYSKK......",
+    "....KKKKOOOKOOOKKKK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKKKKKKKKKKKSK.....",
+    "....KSKOOOOOOOOOKSK.....",
+    ".....KKKKKKKKKKKKK......",
+    "......NNNNNNNNNNN.......",
+    "......NNNNNNNNNNN.......",
+    "......NNNN.NNNNNN.......",
+    ".....NNNN...NNNNN.......",
+    ".....NNN....NNNN........",
+    "....NNN.....NNN.........",
+    "....NN......NN..........",
+    "....NN......NN..........",
+    "....NN......NN..........",
+    "....KK......KK..........",
+    "....KK......KK..........",
+    "...KKK......KKK.........",
+    "...TTT......TTT.........",
+    "...TTT......TTT.........",
+  ],
+  walkA: [
+    "........KKKKKKK.........",
+    ".......KDDDDDDDK........",
+    "......KDDDDDDDDDK.......",
+    "......RRRRRRRRRRR.......",
+    "......RRRRRRRRRRR.......",
+    "......RHHHHHHHHHR.......",
+    "......RHBHHHHHBHR.......",
+    "......RHHHHHHHHHR.......",
+    ".......HHHWWWHHH........",
+    ".......HHHHHHHHH........",
+    "......KKKKKKKKKKK.......",
+    ".....KKSYSYSYSYSKK......",
+    "....KKKKOOOKOOOKKKK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKKKKKKKKKKKSK.....",
+    "....KSKOOOOOOOOOKSK.....",
+    ".....KKKKKKKKKKKKK......",
+    "......NNNNNNNNNNN.......",
+    "......NNNNNNNNNNN.......",
+    "......NN.NNNNNNNN.......",
+    ".....NN..NNNNNNNNN......",
+    "....NN...NNNNNNNNN......",
+    "....NN....NNNNNNN.......",
+    "....NN.....NNNNN........",
+    ".....NN....NN...........",
+    "......NN..NN............",
+    "......KK..NN............",
+    "......KK..KK............",
+    ".....KKK..KK............",
+    ".....TTT.KKK............",
+    ".....TTT.TTT............",
+  ],
+  walkB: [
+    "........KKKKKKK.........",
+    ".......KDDDDDDDK........",
+    "......KDDDDDDDDDK.......",
+    "......RRRRRRRRRRR.......",
+    "......RRRRRRRRRRR.......",
+    "......RHHHHHHHHHR.......",
+    "......RHBHHHHHBHR.......",
+    "......RHHHHHHHHHR.......",
+    ".......HHHWWWHHH........",
+    ".......HHHHHHHHH........",
+    "......KKKKKKKKKKK.......",
+    ".....KKSYSYSYSYSKK......",
+    "....KKKKOOOKOOOKKKK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKKKKKKKKKKKSK.....",
+    "....KSKOOOOOOOOOKSK.....",
+    ".....KKKKKKKKKKKKK......",
+    "......NNNNNNNNNNN.......",
+    "......NNNNNNNNNNN.......",
+    "......NNNNNNNN.NN.......",
+    ".....NNNNNNNNN..NN......",
+    ".....NNNNNNNNN...NN.....",
+    "......NNNNNNN....NN.....",
+    ".......NNNNN.....NN.....",
+    "..........NN....NN......",
+    "...........NN..NN.......",
+    "...........NN..KK.......",
+    "...........KK..KK.......",
+    "...........KK..KKK......",
+    "...........KKK.TTT......",
+    "...........TTT.TTT......",
+  ],
+  jump: [
+    "........KKKKKKK.........",
+    ".......KDDDDDDDK........",
+    "......KDDDDDDDDDK.......",
+    "......RRRRRRRRRRR.......",
+    "......RRRRRRRRRRR.......",
+    "......RHHHHHHHHHR.......",
+    "......RHBHHHHHBHR.......",
+    "......RHHHHHHHHHR.......",
+    ".......HHHWWWHHH........",
+    ".......HHHHHHHHH........",
+    "......KKKKKKKKKKK.......",
+    ".....KKSYSYSYSYSKK......",
+    "....KKKKOOOKOOOKKKK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKKKKKKKKKKKSK.....",
+    "....KSKOOOOOOOOOKSK.....",
+    ".....KKKKKKKKKKKKK......",
+    "......NNNNNNNNNNN.......",
+    "......NNNNNNNNNNN.......",
+    "....NNNNNNN.NNNNNNNN....",
+    "...NNNNN.....NNNNNNN....",
+    "...NNN........NNNNN.....",
+    "..NNN.........NNNN......",
+    "..NN...........NN.......",
+    "..NN............NN......",
+    "..KK............KK......",
+    "..KK............KK......",
+    "..KKK..........KKK......",
+    "..TTT..........TTT......",
+    "...TT..........TT.......",
+    "........................",
+  ],
+  crouch: [
+    "........................",
+    "........................",
+    "........KKKKKKK.........",
+    ".......KDDDDDDDK........",
+    "......KDDDDDDDDDK.......",
+    "......RRRRRRRRRRR.......",
+    "......RRRRRRRRRRR.......",
+    "......RHHHHHHHHHR.......",
+    "......RHBHHHHHBHR.......",
+    "......RHHHHHHHHHR.......",
+    ".......HHHWWWHHH........",
+    "......KKKKKKKKKKK.......",
+    ".....KKSYSYSYSYSKK......",
+    "....KKKKOOOKOOOKKKK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKOOOOKOOOOKSK.....",
+    "....KSKKKKKKKKKKKSK.....",
+    "....KSKOOOOOOOOOKSK.....",
+    ".....KKKKKKKKKKKKK......",
+    "...NNNNNNNN.NNNNNNNN....",
+    "..NNNNNNN.....NNNNNNN...",
+    "..NNN....KKK....NNNN....",
+    "..NN....KKKKK....NN.....",
+    "..NN....KKKKK....NN.....",
+    "..NN.....KKK.....NN.....",
+    "..NNN............NN.....",
+    "..NNNN..........NNN.....",
+    "..NNNNN........NNNN.....",
+    "..TTTTTT......TTTTT.....",
+    "..TTTTTT......TTTTT.....",
+    "........................",
+    "........................",
+  ],
+};
 
 // ────────────────────────────────────────────────
 // Renderer (背景・HUD描画)
