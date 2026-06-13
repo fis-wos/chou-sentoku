@@ -152,13 +152,11 @@ const Input = {
     addEventListener("blur", () => { this.keys.clear(); });
 
     // ───── タッチ操作 → 仮想キー入力 ─────
-    // ボタン要素のdata-keyを keys/pressed に流し込む。
-    // 同一指で複数ボタンに触れても誤発火しないよう activePointers で管理。
+    // iOS Safari の pointer events が連続発火/誤キャンセルで不安定なため
+    // touch events 一本で実装。マウスは別途 mouse events で対応。
     const touchRoot = document.getElementById("touch");
     if (touchRoot) {
       const buttons = Array.from(touchRoot.querySelectorAll(".tbtn"));
-      // pointerId → 押下中のボタン要素
-      const activePtr = new Map();
       const setKeyDown = (btn) => {
         if (!btn || btn.classList.contains("active")) return;
         const k = btn.dataset.key;
@@ -179,42 +177,69 @@ const Input = {
         }
         return null;
       };
-      const onDown = (ev) => {
+
+      // === Touch Events（iOS/Android スマホ） ===
+      const activeTouch = new Map(); // touch.identifier → btn
+      touchRoot.addEventListener("touchstart", (ev) => {
+        ev.preventDefault();
+        for (const t of ev.changedTouches){
+          const btn = findButtonAt(t.clientX, t.clientY);
+          if (btn){
+            activeTouch.set(t.identifier, btn);
+            setKeyDown(btn);
+          }
+        }
+      }, { passive: false });
+      touchRoot.addEventListener("touchmove", (ev) => {
+        ev.preventDefault();
+        for (const t of ev.changedTouches){
+          if (!activeTouch.has(t.identifier)) continue;
+          const cur = activeTouch.get(t.identifier);
+          const next = findButtonAt(t.clientX, t.clientY);
+          // 別のボタンに移った時のみ切替。隙間/外に出ても元を維持
+          if (next && next !== cur){
+            setKeyUp(cur);
+            setKeyDown(next);
+            activeTouch.set(t.identifier, next);
+          }
+        }
+      }, { passive: false });
+      const onTouchEnd = (ev) => {
+        ev.preventDefault();
+        for (const t of ev.changedTouches){
+          if (!activeTouch.has(t.identifier)) continue;
+          setKeyUp(activeTouch.get(t.identifier));
+          activeTouch.delete(t.identifier);
+        }
+      };
+      touchRoot.addEventListener("touchend", onTouchEnd, { passive: false });
+      // touchcancel は iOS Safari の長押し誤発火対策で「無視」
+      // 本当に指が離れる時は touchend が来る
+      touchRoot.addEventListener("touchcancel", (ev) => {
+        ev.preventDefault();
+      }, { passive: false });
+
+      // === Mouse Events（PC用） ===
+      let mouseBtn = null;
+      touchRoot.addEventListener("mousedown", (ev) => {
         ev.preventDefault();
         const btn = findButtonAt(ev.clientX, ev.clientY);
-        if (btn) {
-          activePtr.set(ev.pointerId, btn);
-          setKeyDown(btn);
-        }
-      };
-      const onMove = (ev) => {
-        if (!activePtr.has(ev.pointerId)) return;
-        ev.preventDefault();
-        const cur = activePtr.get(ev.pointerId);
+        if (btn){ mouseBtn = btn; setKeyDown(btn); }
+      });
+      window.addEventListener("mousemove", (ev) => {
+        if (!mouseBtn) return;
         const next = findButtonAt(ev.clientX, ev.clientY);
-        // 別のボタンに移動した場合のみ切替。ボタン外（隙間）に出ても元のボタンを押し続け扱い
-        if (next && next !== cur){
-          setKeyUp(cur);
+        if (next && next !== mouseBtn){
+          setKeyUp(mouseBtn);
           setKeyDown(next);
-          activePtr.set(ev.pointerId, next);
+          mouseBtn = next;
         }
-      };
-      const onUp = (ev) => {
-        if (!activePtr.has(ev.pointerId)) return;
-        setKeyUp(activePtr.get(ev.pointerId));
-        activePtr.delete(ev.pointerId);
-      };
-      touchRoot.addEventListener("pointerdown", onDown, { passive: false });
-      touchRoot.addEventListener("pointermove", onMove, { passive: false });
-      // pointerup/cancel は touchRoot 外でも捕捉する必要があるので window で受ける
-      window.addEventListener("pointerup", onUp, { passive: false });
-      // pointercancel は iOS Safari が長押し時に勝手に発火するため「無視」
-      // 指が本当に離れた時は pointerup が来る。activePtrだけ清掃
-      window.addEventListener("pointercancel", (ev) => {
-        // activePtr に残ったままでも次の pointerdown で再マップされる
-        // ボタンキーは離さない（誤解除防止）
-      }, { passive: false });
-      // ブラウザの長押し選択メニュー抑制
+      });
+      window.addEventListener("mouseup", () => {
+        if (mouseBtn){ setKeyUp(mouseBtn); mouseBtn = null; }
+      });
+
+      // 長押し選択メニュー抑制
       touchRoot.addEventListener("contextmenu", e => e.preventDefault());
     }
   },
