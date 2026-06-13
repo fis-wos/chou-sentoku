@@ -1,0 +1,2324 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>超千徳 〜魔界凱旋譚〜</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#000000" />
+<style>
+  /* ============================================
+     超千徳 - HTML/CSS
+     画面はletterboxで内部1280x720を維持
+     ============================================ */
+  html, body {
+    margin: 0; padding: 0; background: #000; height: 100%; overflow: hidden;
+    color: #fffbe6;
+    font-family: "DotGothic16","Press Start 2P","Hiragino Sans","Yu Gothic",sans-serif;
+    user-select: none; -webkit-user-select: none;
+  }
+  #wrap {
+    width: 100vw; height: 100vh; display: flex;
+    align-items: center; justify-content: center; background: #000;
+  }
+  canvas#screen {
+    background: #000;
+    image-rendering: pixelated;
+    max-width: 100vw; max-height: 100vh;
+    aspect-ratio: 16/9;
+    box-shadow: 0 0 24px #aa0033 inset, 0 0 12px #000;
+  }
+  #hint {
+    position: fixed; left: 8px; bottom: 6px;
+    color: #aaa; font-size: 12px; opacity: 0.6;
+  }
+  /* ─── タッチコントロール（タッチ/粗ポインタ端末でのみ表示）─── */
+  #touch {
+    position: fixed; inset: 0; pointer-events: none;
+    display: none;
+    z-index: 10;
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* タッチ可能 or 細ポインタ非対応端末で有効化 */
+  @media (pointer: coarse), (hover: none) {
+    #touch { display: block; }
+    #hint  { display: none; }
+  }
+  .tbtn {
+    position: absolute;
+    pointer-events: auto;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(40, 20, 60, 0.45);
+    border: 2px solid rgba(255, 215, 0, 0.6);
+    color: #fffbe6;
+    font-family: "DotGothic16","Hiragino Sans","Yu Gothic",sans-serif;
+    font-weight: 700;
+    text-shadow: 1px 1px 0 #000;
+    border-radius: 50%;
+    box-shadow: 0 0 8px rgba(0,0,0,0.6) inset, 0 2px 4px rgba(0,0,0,0.5);
+    transition: transform 60ms, background 60ms;
+  }
+  .tbtn.sq { border-radius: 14px; }
+  .tbtn.active { background: rgba(170, 0, 51, 0.85); transform: scale(0.94); }
+  /* 左下: 方向 */
+  #tL { left: 4vmin;  bottom: 4vmin; width: 14vmin; height: 14vmin; font-size: 7vmin; }
+  #tR { left: 22vmin; bottom: 4vmin; width: 14vmin; height: 14vmin; font-size: 7vmin; }
+  #tD { left: 13vmin; bottom: 17vmin; width: 10vmin; height: 8vmin; font-size: 4vmin; }
+  /* 右下: アクション */
+  #tJ { right: 4vmin;  bottom: 16vmin; width: 16vmin; height: 16vmin; font-size: 5vmin; background: rgba(40,80,40,0.5); }
+  #tA { right: 22vmin; bottom: 4vmin;  width: 16vmin; height: 16vmin; font-size: 5vmin; background: rgba(80,40,40,0.5); }
+  #tW { right: 4vmin;  bottom: 36vmin; width: 12vmin; height: 12vmin; font-size: 4vmin; }
+  #tS { right: 20vmin; bottom: 26vmin; width: 12vmin; height: 12vmin; font-size: 4vmin; background: rgba(80,60,0,0.55); border-color: gold; }
+  /* 上部: ポーズ/Enter */
+  #tP { right: 2vmin; top: 2vmin; width: 10vmin; height: 8vmin; font-size: 4vmin; border-radius: 10px; }
+  #tE { left: 50%; transform: translateX(-50%); top: 2vmin; width: 24vmin; height: 8vmin; font-size: 4vmin; border-radius: 10px; background: rgba(0,80,120,0.55); }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="screen" width="1280" height="720"></canvas>
+</div>
+<div id="hint">← → 移動 / ↑ ジャンプ / Z 攻撃 / X 武器切替 / Shift しゃがみ / Esc ポーズ</div>
+<div id="touch" aria-hidden="true">
+  <div class="tbtn" id="tL" data-key="ArrowLeft">◀</div>
+  <div class="tbtn" id="tR" data-key="ArrowRight">▶</div>
+  <div class="tbtn sq" id="tD" data-key="Shift">しゃ</div>
+  <div class="tbtn" id="tJ" data-key="ArrowUp">跳</div>
+  <div class="tbtn" id="tA" data-key="z">攻</div>
+  <div class="tbtn" id="tW" data-key="x">武器</div>
+  <div class="tbtn" id="tS" data-key="c">超</div>
+  <div class="tbtn sq" id="tP" data-key="Escape">⏸</div>
+  <div class="tbtn sq" id="tE" data-key="Enter">START</div>
+</div>
+<script>
+/* =====================================================================
+ * 超千徳 (Chou Sentoku) - 単一HTMLゲーム
+ * ─ 構造概要 ─
+ *  - Game        : ループ・状態(タイトル/プレイ/クリア/オーバー/ED)制御
+ *  - Stage       : ステージデータ(地形・敵配置・スクロール長)管理
+ *  - Player      : 千徳本体。物理・入力・武器発射・被弾(鎧→下着→死)
+ *  - Weapon/Projectile: 5種の武器挙動(槍/手裏剣/松明/破魔札/鎖鎌)
+ *  - Enemy       : 雑魚10種＋ボス6種(中ボス5＋ラスボス2形態)
+ *  - Renderer    : Canvas描画(絵文字fillText/グラデ/パララックス/HUD)
+ *  - Audio       : Web Audio APIで矩形波/ノイズSE生成
+ *  - 末尾の TUNING に全バランス調整定数を集約
+ * ===================================================================== */
+
+"use strict";
+
+(() => {
+
+// ────────────────────────────────────────────────
+// 定数 / バランス調整(末尾のTUNINGも参照)
+// ────────────────────────────────────────────────
+const W = 1280, H = 720;
+const HUD_TOP = 64, HUD_BOTTOM = 48;
+const PLAY_TOP = HUD_TOP, PLAY_BOTTOM = H - HUD_BOTTOM; // 64..672
+const TILE = 64;
+const GROUND_Y = PLAY_BOTTOM - TILE; // 地面上端の標準位置
+
+const EMOJI_FONT = `'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji','Twemoji Mozilla','EmojiOne Color','Android Emoji',sans-serif`;
+const UI_FONT    = `'DotGothic16','Press Start 2P','Hiragino Sans','Yu Gothic',sans-serif`;
+
+// ────────────────────────────────────────────────
+// 入力管理
+// ────────────────────────────────────────────────
+const Input = {
+  keys: new Set(),
+  pressed: new Set(),
+  init() {
+    addEventListener("keydown", (e) => {
+      // ゲーム用キーのみpreventDefault
+      const k = e.key;
+      if (["ArrowLeft","ArrowRight","ArrowUp","ArrowDown"," ","z","Z","x","X","Shift","Escape","Enter"].includes(k)) {
+        e.preventDefault();
+      }
+      if (!this.keys.has(k)) this.pressed.add(k);
+      this.keys.add(k);
+    });
+    addEventListener("keyup", (e) => { this.keys.delete(e.key); });
+    addEventListener("blur", () => { this.keys.clear(); });
+
+    // ───── タッチ操作 → 仮想キー入力 ─────
+    // ボタン要素のdata-keyを keys/pressed に流し込む。
+    // 同一指で複数ボタンに触れても誤発火しないよう activePointers で管理。
+    const touchRoot = document.getElementById("touch");
+    if (touchRoot) {
+      const buttons = Array.from(touchRoot.querySelectorAll(".tbtn"));
+      // pointerId → 押下中のボタン要素
+      const activePtr = new Map();
+      const setKeyDown = (btn) => {
+        if (!btn || btn.classList.contains("active")) return;
+        const k = btn.dataset.key;
+        if (!this.keys.has(k)) this.pressed.add(k);
+        this.keys.add(k);
+        btn.classList.add("active");
+      };
+      const setKeyUp = (btn) => {
+        if (!btn) return;
+        const k = btn.dataset.key;
+        this.keys.delete(k);
+        btn.classList.remove("active");
+      };
+      const findButtonAt = (x, y) => {
+        for (const b of buttons) {
+          const r = b.getBoundingClientRect();
+          if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return b;
+        }
+        return null;
+      };
+      const onDown = (ev) => {
+        ev.preventDefault();
+        const btn = findButtonAt(ev.clientX, ev.clientY);
+        if (btn) {
+          activePtr.set(ev.pointerId, btn);
+          setKeyDown(btn);
+        }
+      };
+      const onMove = (ev) => {
+        if (!activePtr.has(ev.pointerId)) return;
+        ev.preventDefault();
+        const cur = activePtr.get(ev.pointerId);
+        const next = findButtonAt(ev.clientX, ev.clientY);
+        if (next !== cur) {
+          setKeyUp(cur);
+          if (next) setKeyDown(next);
+          if (next) activePtr.set(ev.pointerId, next);
+          else activePtr.delete(ev.pointerId);
+        }
+      };
+      const onUp = (ev) => {
+        if (!activePtr.has(ev.pointerId)) return;
+        ev.preventDefault();
+        setKeyUp(activePtr.get(ev.pointerId));
+        activePtr.delete(ev.pointerId);
+      };
+      touchRoot.addEventListener("pointerdown", onDown, { passive: false });
+      touchRoot.addEventListener("pointermove", onMove, { passive: false });
+      touchRoot.addEventListener("pointerup",   onUp,   { passive: false });
+      touchRoot.addEventListener("pointercancel", onUp, { passive: false });
+      // ブラウザの長押し選択メニュー抑制
+      touchRoot.addEventListener("contextmenu", e => e.preventDefault());
+    }
+  },
+  isDown(k){ return this.keys.has(k); },
+  consumePressed(k){
+    if (this.pressed.has(k)) { this.pressed.delete(k); return true; }
+    return false;
+  },
+  endFrame(){ this.pressed.clear(); }
+};
+
+// ────────────────────────────────────────────────
+// オーディオ(WebAudio簡易SE)
+// ────────────────────────────────────────────────
+class AudioMgr {
+  constructor(){
+    this.ctx = null; this.enabled = true;
+  }
+  ensure(){
+    if (!this.ctx){
+      try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch(e){ this.enabled = false; }
+    }
+    if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+  }
+  beep(freq, dur=0.08, type="square", vol=0.08){
+    if (!this.enabled) return;
+    this.ensure(); if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    o.connect(g).connect(this.ctx.destination);
+    o.start(t); o.stop(t+dur+0.02);
+  }
+  sweep(f1, f2, dur=0.15, type="square", vol=0.08){
+    if (!this.enabled) return;
+    this.ensure(); if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f1, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(40,f2), t+dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    o.connect(g).connect(this.ctx.destination);
+    o.start(t); o.stop(t+dur+0.02);
+  }
+  noise(dur=0.1, vol=0.08){
+    if (!this.enabled) return;
+    this.ensure(); if (!this.ctx) return;
+    const sr = this.ctx.sampleRate;
+    const buf = this.ctx.createBuffer(1, sr*dur, sr);
+    const d = buf.getChannelData(0);
+    for (let i=0;i<d.length;i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+    const s = this.ctx.createBufferSource(); s.buffer = buf;
+    const g = this.ctx.createGain(); g.gain.value = vol;
+    s.connect(g).connect(this.ctx.destination); s.start();
+  }
+  sfx(name){
+    switch(name){
+      case "jump":    this.sweep(420, 880, 0.12, "square", 0.06); break;
+      case "shoot":   this.sweep(900, 500, 0.08, "square", 0.06); break;
+      case "hit":     this.noise(0.08, 0.10); this.beep(180, 0.08, "square", 0.07); break;
+      case "kill":    this.sweep(440, 80, 0.25, "sawtooth", 0.08); this.noise(0.15, 0.06); break;
+      case "damage":  this.noise(0.18, 0.12); this.sweep(220, 80, 0.18, "square", 0.07); break;
+      case "die":     this.sweep(330, 60, 0.6, "sawtooth", 0.09); break;
+      case "pickup":  this.beep(880, 0.06, "triangle", 0.06); this.beep(1320, 0.06, "triangle", 0.06); break;
+      case "boss":    this.sweep(80, 60, 0.6, "sawtooth", 0.12); break;
+      case "win":     this.beep(880,0.1,"triangle",0.07); setTimeout(()=>this.beep(1100,0.1,"triangle",0.07),120); setTimeout(()=>this.beep(1320,0.2,"triangle",0.08),240); break;
+      case "select":  this.beep(660, 0.05, "square", 0.05); break;
+      case "start":   this.beep(440,0.1,"square",0.07); setTimeout(()=>this.beep(880,0.15,"square",0.07),120); break;
+      case "swing":   this.noise(0.05, 0.05); break;
+    }
+  }
+}
+const Audio = new AudioMgr();
+
+// ────────────────────────────────────────────────
+// ユーティリティ
+// ────────────────────────────────────────────────
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const rand = (a,b) => a + Math.random()*(b-a);
+const sign = v => v<0?-1:v>0?1:0;
+function aabb(a,b){ return !(a.x+a.w<b.x || b.x+b.w<a.x || a.y+a.h<b.y || b.y+b.h<a.y); }
+
+// ────────────────────────────────────────────────
+// 武器データ
+// ────────────────────────────────────────────────
+// Weapon: id/絵文字/挙動タイプ/速度/ダメージ/同時数/連射クールダウン
+const WEAPONS = [
+  { id:"yari",    name:"千徳槍",      emoji:"🗡️", type:"straight", speed:680, dmg:3, max:2, cd:0.30, autofire:false },
+  { id:"shuri",   name:"手裏剣",      emoji:"🌀", type:"straight", speed:880, dmg:1, max:5, cd:0.08, autofire:true },
+  { id:"taimatsu",name:"護摩の松明",  emoji:"🔥", type:"arc",      speed:480, dmg:3, max:2, cd:0.50, residual:2.0, autofire:true },
+  { id:"hama",    name:"破魔札",      emoji:"✨", type:"pierce",   speed:760, dmg:2, max:2, cd:0.34, autofire:false },
+  { id:"kusari",  name:"業の鎖鎌",    emoji:"⚔️", type:"boomerang",speed:540, dmg:3, max:1, cd:0.55, autofire:false },
+];
+
+// ────────────────────────────────────────────────
+// 敵テンプレート(雑魚 + 中ボス + ラスボス)
+// ────────────────────────────────────────────────
+const ENEMY_DEFS = {
+  // ─── 雑魚 ───
+  zombie:    { emoji:"🧟",   hp:1, w:56, h:60, speed:80,  ai:"walker",   score:100 },
+  bat:       { emoji:"🦇",   hp:1, w:50, h:42, speed:170, ai:"sineBat",  score:120, fly:true },
+  ghost:     { emoji:"👻",   hp:2, w:54, h:60, speed:120, ai:"zigGhost", score:150, fly:true, ghost:true },
+  raven:     { emoji:"🐦‍⬛", hp:1, w:50, h:46, speed:230, ai:"dive",     score:130, fly:true },
+  salamander:{ emoji:"🦎",   hp:2, w:60, h:48, speed:60,  ai:"spitter",  score:180 },
+  redOni:    { emoji:"👹",   hp:3, w:60, h:62, speed:90,  ai:"teleOni",  score:260 },
+  yuki:      { emoji:"🧞‍♀️", hp:4, w:60, h:64, speed:70,  ai:"yuki",     score:320, fly:true },
+  wolf:      { emoji:"🐺",   hp:3, w:60, h:60, speed:180, ai:"hopper",   score:230 },
+  onmyo:     { emoji:"🧙‍♂️", hp:3, w:58, h:62, speed:60,  ai:"caster3w", score:280 },
+  shinigami: { emoji:"☠️",   hp:5, w:58, h:62, speed:140, ai:"shini",    score:400, fly:true },
+  shadow:    { emoji:"🦹",   hp:6, w:58, h:62, speed:160, ai:"shadowK",  score:500 },
+  // ─── 中ボス ───
+  bossDoutaro:{ emoji:"💀",  hp:30, w:120, h:120, speed:160, ai:"boss1", score:1500, isBoss:true, name:"首なし武者 胴太郎" },
+  bossHomura: { emoji:"🐉",  hp:60, w:140, h:130, speed:120, ai:"boss2", score:2500, isBoss:true, name:"業火竜 焔丸" },
+  bossIteme:  { emoji:"👁️", hp:80, w:130, h:130, speed:120, ai:"boss3", score:3500, isBoss:true, name:"氷霊大神 凍て眼" },
+  bossBunraku:{ emoji:"🃏",  hp:100,w:130, h:130, speed:140, ai:"boss4", score:5000, isBoss:true, name:"狂気の傀儡師 文楽" },
+  bossGoren:  { emoji:"😈",  hp:120,w:140, h:140, speed:130, ai:"boss5", score:7000, isBoss:true, name:"魔王の右腕 業鎌鬼" },
+  // ─── ラスボス ───
+  finalP1:    { emoji:"👹",  hp:150,w:140, h:150, speed:140, ai:"final1",score:10000, isBoss:true, name:"黒煉魔王 第一形態" },
+  finalP2:    { emoji:"🐲",  hp:250,w:170, h:170, speed:160, ai:"final2",score:20000, isBoss:true, name:"黒煉魔王 真の姿" },
+};
+
+// ────────────────────────────────────────────────
+// ステージ定義
+// ステージ長(world width)・色・敵スポーン(x座標, 種別)・中ボス
+// ────────────────────────────────────────────────
+const STAGES = [
+  {
+    name: "壱の段 「黄昏の墓守谷」",
+    sub:  "Stage 1-1",
+    bgTop:"#1a1033", bgBot:"#3b2a4d",
+    floorEmoji:"🪦", deco:["🪦","🗿","🌲"],
+    farMoon:"🌒", far:"🌌", mid:"🌲", front:"🪦",
+    length: 4800,
+    spawns: [
+      {x:800,  type:"zombie"}, {x:1100, type:"bat"},
+      {x:1400, type:"zombie"}, {x:1700, type:"raven"},
+      {x:2100, type:"ghost"},  {x:2400, type:"zombie"},
+      {x:2700, type:"bat"},    {x:3000, type:"zombie"},
+      {x:3300, type:"raven"},  {x:3600, type:"ghost"},
+    ],
+    boss: "bossDoutaro",
+    checkpointX: 2400,
+    platforms: [
+      {x:900, y:GROUND_Y-140, w:200},
+      {x:1500, y:GROUND_Y-180, w:180},
+      {x:2200, y:GROUND_Y-140, w:200},
+      {x:2900, y:GROUND_Y-200, w:160},
+      {x:3500, y:GROUND_Y-140, w:200},
+    ],
+    hazards: [
+      {x:1300, y:GROUND_Y, w:120, kind:"pit"},
+      {x:2050, y:GROUND_Y, w:120, kind:"pit"},
+      {x:3200, y:GROUND_Y, w:140, kind:"pit"},
+    ],
+  },
+  {
+    name: "弐の段 「業火の地底洞」",
+    sub:  "Stage 2",
+    bgTop:"#3a0a0a", bgBot:"#7a1f0a",
+    floorEmoji:"🟥", deco:["🪨","🔥","💎"],
+    farMoon:"🌋", far:"🔥", mid:"🪨", front:"🔥",
+    length: 5200,
+    spawns: [
+      {x:800,  type:"salamander"}, {x:1200, type:"bat"},
+      {x:1500, type:"redOni"}, {x:1900, type:"salamander"},
+      {x:2300, type:"bat"}, {x:2600, type:"redOni"},
+      {x:2900, type:"salamander"}, {x:3300, type:"redOni"},
+      {x:3700, type:"bat"}, {x:4000, type:"salamander"},
+    ],
+    boss: "bossHomura",
+    checkpointX: 2600,
+    platforms: [
+      {x:1000, y:GROUND_Y-150, w:200},
+      {x:1700, y:GROUND_Y-180, w:180},
+      {x:2500, y:GROUND_Y-150, w:200},
+      {x:3300, y:GROUND_Y-200, w:160},
+    ],
+    hazards: [
+      {x:1400, y:GROUND_Y, w:140, kind:"pit"},
+      {x:2200, y:GROUND_Y, w:140, kind:"pit"},
+      {x:3800, y:GROUND_Y, w:140, kind:"pit"},
+    ],
+  },
+  {
+    name: "参の段 「氷結神社」",
+    sub:  "Stage 3",
+    bgTop:"#0a1a3a", bgBot:"#5a8ac9",
+    floorEmoji:"🧊", deco:["⛩️","❄️","🧊"],
+    farMoon:"🌕", far:"🏔️", mid:"⛩️", front:"🧊",
+    length: 5600,
+    spawns: [
+      {x:800,  type:"wolf"}, {x:1200, type:"yuki"},
+      {x:1500, type:"wolf"}, {x:1900, type:"yuki"},
+      {x:2300, type:"wolf"}, {x:2600, type:"yuki"},
+      {x:3000, type:"wolf"}, {x:3400, type:"yuki"},
+      {x:3700, type:"wolf"}, {x:4100, type:"yuki"},
+    ],
+    boss: "bossIteme",
+    checkpointX: 2800,
+    platforms: [
+      {x:1100, y:GROUND_Y-140, w:200},
+      {x:1800, y:GROUND_Y-180, w:180},
+      {x:2700, y:GROUND_Y-150, w:200},
+      {x:3500, y:GROUND_Y-200, w:160},
+    ],
+    hazards: [
+      {x:1500, y:GROUND_Y, w:140, kind:"pit"},
+      {x:3000, y:GROUND_Y, w:140, kind:"pit"},
+      // 氷床: 摩擦が低い区間(慣性が残る)
+      {x:2000, y:GROUND_Y, w:600, kind:"ice"},
+      {x:3500, y:GROUND_Y, w:500, kind:"ice"},
+    ],
+  },
+  {
+    name: "肆の段 「天空鬼ヶ城」",
+    sub:  "Stage 4",
+    bgTop:"#1a0a3a", bgBot:"#3a1a6a",
+    floorEmoji:"⚙️", deco:["⚙️","⛓️","⚡"],
+    farMoon:"⚡", far:"☁️", mid:"⚙️", front:"⛓️",
+    length: 6000,
+    spawns: [
+      {x:800,  type:"onmyo"}, {x:1100, type:"raven"},
+      {x:1500, type:"onmyo"}, {x:1900, type:"bat"},
+      {x:2300, type:"onmyo"}, {x:2700, type:"redOni"},
+      {x:3100, type:"onmyo"}, {x:3500, type:"ghost"},
+      {x:3900, type:"onmyo"}, {x:4300, type:"redOni"},
+    ],
+    boss: "bossBunraku",
+    checkpointX: 3000,
+    platforms: [
+      {x:1000, y:GROUND_Y-160, w:180},
+      {x:1700, y:GROUND_Y-200, w:160},
+      {x:2400, y:GROUND_Y-160, w:180},
+      {x:3300, y:GROUND_Y-220, w:160},
+      {x:4200, y:GROUND_Y-180, w:180},
+    ],
+    hazards: [
+      {x:1400, y:GROUND_Y, w:160, kind:"pit"},
+      {x:2700, y:GROUND_Y, w:160, kind:"pit"},
+      {x:3800, y:GROUND_Y, w:180, kind:"pit"},
+      // 崩落床: 乗ると0.6秒で消える
+      {x:2000, y:GROUND_Y-100, w:200, kind:"crumble"},
+      {x:4500, y:GROUND_Y-130, w:200, kind:"crumble"},
+    ],
+  },
+  {
+    name: "伍の段 「血涙の御殿回廊」",
+    sub:  "Stage 5",
+    bgTop:"#1a0000", bgBot:"#3a0a1a",
+    floorEmoji:"🕯️", deco:["🕯️","🦴","🪞"],
+    farMoon:"🌑", far:"🏯", mid:"🕯️", front:"🦴",
+    length: 6400,
+    spawns: [
+      {x:800,  type:"shinigami"}, {x:1200, type:"shadow"},
+      {x:1500, type:"shinigami"}, {x:1900, type:"shadow"},
+      {x:2300, type:"shinigami"}, {x:2700, type:"ghost"},
+      {x:3100, type:"shadow"}, {x:3500, type:"shinigami"},
+      {x:3900, type:"shadow"}, {x:4300, type:"shinigami"},
+      {x:4700, type:"shadow"},
+    ],
+    boss: "bossGoren",
+    checkpointX: 3200,
+    platforms: [
+      {x:1100, y:GROUND_Y-150, w:180},
+      {x:1800, y:GROUND_Y-200, w:160},
+      {x:2600, y:GROUND_Y-150, w:200},
+      {x:3500, y:GROUND_Y-220, w:160},
+      {x:4500, y:GROUND_Y-180, w:200},
+    ],
+    hazards: [
+      {x:1450, y:GROUND_Y, w:160, kind:"pit"},
+      {x:3000, y:GROUND_Y, w:160, kind:"pit"},
+      {x:4100, y:GROUND_Y, w:180, kind:"pit"},
+      // 棘床: 接触で即下着化
+      {x:2200, y:GROUND_Y-20, w:300, kind:"spike"},
+      {x:4800, y:GROUND_Y-20, w:300, kind:"spike"},
+    ],
+  },
+  {
+    name: "最終段 「黒煉魔王の間」",
+    sub:  "Final",
+    bgTop:"#000000", bgBot:"#5a0000",
+    floorEmoji:"🟥", deco:["🪑","👑","⛓️"],
+    farMoon:"🌑", far:"👑", mid:"🪑", front:"⛓️",
+    length: 2200,
+    spawns: [],
+    boss: "finalP1",
+    boss2:"finalP2",
+    checkpointX: -1,
+    isFinal: true,
+  },
+];
+
+// ────────────────────────────────────────────────
+// Projectile - プレイヤー武器/敵弾
+// ────────────────────────────────────────────────
+class Projectile {
+  constructor(x,y,vx,vy,opts){
+    this.x=x; this.y=y; this.vx=vx; this.vy=vy;
+    this.w=opts.w||32; this.h=opts.h||32;
+    this.emoji=opts.emoji||"🗡️";
+    this.dmg=opts.dmg||1;
+    this.life=opts.life||2.0;
+    this.pierce=!!opts.pierce;
+    this.gravity=!!opts.gravity;
+    this.type=opts.type||"straight";
+    this.fromEnemy=!!opts.fromEnemy;
+    this.angle=0; this.angleSpd=opts.spin||0;
+    this.boomerang=!!opts.boomerang;
+    this.boomerangBack=false;
+    this.originX=x;
+    this.hitSet=new Set();
+    this.dead=false;
+    this.residual=opts.residual||0;
+    this.t=0;
+  }
+  update(dt, game){
+    this.life -= dt; this.t += dt;
+    if (this.life<=0) { this.dead=true; return; }
+    if (this.gravity) this.vy += 1200*dt;
+    if (this.boomerang){
+      // 一定距離で戻る
+      if (!this.boomerangBack && Math.abs(this.x - this.originX) > 300){
+        this.boomerangBack = true;
+      }
+      if (this.boomerangBack){
+        this.vx = -sign(this.vx)*Math.abs(this.vx);
+        // 戻ったらプレイヤー方向に
+        const p = game.player;
+        const dx = p.x + p.w/2 - this.x;
+        this.vx = sign(dx)*540;
+        if (Math.abs(dx) < 40) this.dead = true;
+      }
+    }
+    this.x += this.vx*dt; this.y += this.vy*dt;
+    this.angle += this.angleSpd*dt;
+
+    // 画面外消滅(ワールド座標で判定)
+    const margin = 200;
+    if (this.x < game.cameraX - margin || this.x > game.cameraX + W + margin) {
+      if (!this.boomerang) this.dead = true;
+    }
+    if (this.y > PLAY_BOTTOM + 100) this.dead = true;
+
+    // 地面到達時、松明は残火に
+    if (this.gravity && this.y >= GROUND_Y - 16){
+      this.y = GROUND_Y - 16;
+      this.vx = 0; this.vy = 0; this.gravity=false;
+      // 残火寿命: residual秒(松明=2.0秒)
+      this.life = Math.min(this.life, this.residual || 1.2);
+    }
+  }
+  draw(ctx, camX){
+    ctx.save();
+    ctx.translate(this.x - camX, this.y);
+    if (this.angle) ctx.rotate(this.angle);
+    if (this.vx < 0) ctx.scale(-1,1);
+    ctx.font = `40px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    if (this._golden){
+      ctx.shadowColor = "#ffd700";
+      ctx.shadowBlur = 15;
+      ctx.fillText(this.emoji, 0, 0);
+      ctx.shadowBlur = 0;
+      // キラキラを重ね描画
+      ctx.font = `28px ${EMOJI_FONT}`;
+      ctx.globalAlpha = 0.85;
+      ctx.fillText("✨", 0, 0);
+    } else {
+      ctx.fillText(this.emoji, 0, 0);
+    }
+    ctx.restore();
+  }
+}
+
+// ────────────────────────────────────────────────
+// Enemy
+// ────────────────────────────────────────────────
+class Enemy {
+  constructor(type, x, y){
+    const def = ENEMY_DEFS[type];
+    this.type = type; this.def = def;
+    this.x=x; this.y=y; this.w=def.w; this.h=def.h;
+    this.hp=def.hp; this.maxHp=def.hp;
+    this.emoji=def.emoji; this.score=def.score;
+    this.speed=def.speed; this.dir=-1;
+    this.vy=0; this.onGround=false;
+    this.fly=!!def.fly; this.ghost=!!def.ghost;
+    this.isBoss=!!def.isBoss; this.name=def.name||"";
+    this.timer=Math.random()*2;
+    this.fireTimer=1+Math.random();
+    this.flash=0;
+    this.dead=false;
+    this.touchDmg=1;
+    this.state=0; this.stateTimer=0;
+    this.tx=x; this.ty=y;
+    this.bobBase=y;
+    this.facing=-1;
+    this.invul=0;
+    this.spawnX=x;
+  }
+  hurt(dmg, game){
+    if (this.invul>0) return false;
+    this.hp -= dmg; this.flash=0.1;
+    Audio.sfx("hit");
+    if (this.hp<=0){
+      this.dead=true;
+      game.player.addScore(this.score);
+      game.player.tokuGauge = Math.min(100, game.player.tokuGauge+10);
+      Audio.sfx("kill");
+      // ドロップ
+      if (Math.random()<0.18 && !this.isBoss){
+        game.items.push(new Item(this.x+this.w/2-16, this.y+this.h/2-16, "heart"));
+      } else if (Math.random()<0.10 && !this.isBoss){
+        game.items.push(new Item(this.x+this.w/2-16, this.y+this.h/2-16, "armor"));
+      } else if (Math.random()<0.25 && !this.isBoss){
+        game.items.push(new Item(this.x+this.w/2-16, this.y+this.h/2-16, "coin"));
+      }
+    }
+    return true;
+  }
+  update(dt, game){
+    if (this.dead) return;
+    if (this.flash>0) this.flash -= dt;
+    if (this.invul>0) this.invul -= dt;
+    this.timer += dt; this.fireTimer -= dt;
+    const p = game.player;
+
+    switch(this.def.ai){
+      case "walker": {
+        // 歩く。プレイヤーが近いと加速
+        const dx = (p.x+p.w/2) - (this.x+this.w/2);
+        this.dir = sign(dx) || this.dir;
+        let sp = this.speed;
+        if (Math.abs(dx) < 360) sp *= 1.5;
+        this.x += this.dir * sp * dt;
+        // 重力
+        this.vy += 1500*dt;
+        this.y += this.vy*dt;
+        if (this.y + this.h >= GROUND_Y){
+          this.y = GROUND_Y - this.h; this.vy=0;
+        }
+        this.facing = this.dir;
+        break;
+      }
+      case "sineBat": {
+        this.x -= this.speed*dt;
+        this.y = this.bobBase + Math.sin(this.timer*3)*60;
+        this.facing = -1;
+        if (this.x < p.x) this.facing = 1;
+        break;
+      }
+      case "zigGhost": {
+        const dx = p.x - this.x; this.dir = sign(dx);
+        this.x += this.dir*this.speed*dt;
+        this.y = this.bobBase + Math.sin(this.timer*4)*70;
+        this.facing = this.dir;
+        break;
+      }
+      case "dive": {
+        // ダイブ→離脱
+        if (this.state===0){
+          // 接近
+          this.x -= this.speed*dt;
+          this.y += Math.sin(this.timer*4)*1.5;
+          if (Math.abs(p.x - this.x) < 200) this.state=1;
+        } else if (this.state===1){
+          // 急降下
+          this.x -= this.speed*0.6*dt;
+          this.y += 280*dt;
+          if (this.y > GROUND_Y - this.h) this.state=2;
+        } else {
+          // 離脱
+          this.x -= this.speed*1.2*dt;
+          this.y -= 200*dt;
+        }
+        this.facing=-1;
+        break;
+      }
+      case "spitter": {
+        // 這う→火球
+        this.x += this.dir*this.speed*dt;
+        this.y = GROUND_Y - this.h;
+        if (Math.abs(p.x - this.x) < 500 && this.fireTimer<=0){
+          const dirToP = sign(p.x - this.x);
+          game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+            dirToP*320, -50, {emoji:"🔥", dmg:1, life:2.0, fromEnemy:true}));
+          this.fireTimer = 2.0;
+        }
+        // 移動範囲制限
+        if (Math.abs(this.x - this.spawnX) > 220) this.dir = -this.dir;
+        this.facing = this.dir;
+        break;
+      }
+      case "teleOni": {
+        // テレポート＋火炎弾
+        this.y = GROUND_Y - this.h;
+        if (this.state===0){
+          this.stateTimer += dt;
+          if (this.stateTimer > 1.5){
+            // テレポート: プレイヤー付近に
+            this.x = p.x + (Math.random()<0.5?-300:300);
+            this.x = clamp(this.x, p.x-500, p.x+500);
+            this.stateTimer=0; this.state=1;
+            this.invul=0.2;
+          }
+        } else {
+          this.stateTimer += dt;
+          if (this.stateTimer > 0.8){
+            const dirToP = sign(p.x - this.x);
+            game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/3,
+              dirToP*360, 0, {emoji:"🔥", dmg:1, life:2.0, fromEnemy:true}));
+            this.stateTimer=0; this.state=0;
+          }
+        }
+        this.facing = sign(p.x - this.x) || -1;
+        break;
+      }
+      case "yuki": {
+        // 凍結ブレス
+        this.y = this.bobBase + Math.sin(this.timer*1.5)*20;
+        const dx = p.x - this.x;
+        if (Math.abs(dx) > 200) this.x += sign(dx)*this.speed*dt;
+        if (this.fireTimer<=0){
+          const dirToP = sign(p.x - this.x);
+          game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+            dirToP*280, 0, {emoji:"❄️", dmg:1, life:2.0, fromEnemy:true}));
+          this.fireTimer = 1.8;
+        }
+        this.facing = sign(p.x - this.x) || -1;
+        break;
+      }
+      case "hopper": {
+        // 高速ジャンプ
+        this.vy += 1500*dt;
+        const dx = p.x - this.x; this.dir = sign(dx);
+        this.x += this.dir*this.speed*dt;
+        this.y += this.vy*dt;
+        if (this.y + this.h >= GROUND_Y){
+          this.y = GROUND_Y - this.h;
+          this.vy = -700; // ジャンプ
+        }
+        this.facing = this.dir;
+        break;
+      }
+      case "caster3w": {
+        // 3WAY式神
+        this.y = this.bobBase;
+        if (this.fireTimer<=0){
+          const dirToP = sign(p.x - this.x) || -1;
+          for (let a=-0.3; a<=0.3; a+=0.3){
+            game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+              dirToP*Math.cos(a)*320, Math.sin(a)*220, {emoji:"🟣", dmg:1, life:2.5, fromEnemy:true}));
+          }
+          this.fireTimer = 2.2;
+        }
+        // 微移動
+        this.x += Math.sin(this.timer*1.5)*20*dt;
+        this.facing = sign(p.x - this.x) || -1;
+        break;
+      }
+      case "shini": {
+        // 死神: 瞬間移動
+        this.stateTimer += dt;
+        if (this.stateTimer > 2.0){
+          this.x = p.x + (Math.random()<0.5?-240:240);
+          this.y = p.y + rand(-40, 40);
+          this.stateTimer = 0; this.invul=0.2;
+        }
+        const dx = p.x - this.x;
+        this.x += sign(dx)*this.speed*0.4*dt;
+        this.facing = sign(dx)||-1;
+        break;
+      }
+      case "shadowK": {
+        // 鏡像
+        const dx = p.x - this.x;
+        this.x += sign(dx)*this.speed*0.8*dt;
+        this.y = GROUND_Y - this.h;
+        if (this.fireTimer<=0 && Math.abs(dx)<400){
+          const dirToP = sign(dx)||-1;
+          game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+            dirToP*360, 0, {emoji:"🗡️", dmg:1, life:2.0, fromEnemy:true}));
+          this.fireTimer=1.5;
+        }
+        this.facing = sign(dx)||-1;
+        break;
+      }
+      // ─── ボスAI ───
+      case "boss1": this.aiBoss1(dt, game, p); break;
+      case "boss2": this.aiBoss2(dt, game, p); break;
+      case "boss3": this.aiBoss3(dt, game, p); break;
+      case "boss4": this.aiBoss4(dt, game, p); break;
+      case "boss5": this.aiBoss5(dt, game, p); break;
+      case "final1":this.aiFinal1(dt, game, p); break;
+      case "final2":this.aiFinal2(dt, game, p); break;
+    }
+
+    // ワールド範囲制限
+    const stage = game.stage;
+    this.x = clamp(this.x, 0, stage.length);
+  }
+
+  // ── 中ボス: 胴太郎(突進＋頭投げ) ──
+  aiBoss1(dt, game, p){
+    this.y = GROUND_Y - this.h;
+    this.stateTimer += dt;
+    if (this.state===0){ // 突進
+      const dx = p.x - this.x; this.dir = sign(dx)||-1;
+      this.x += this.dir*220*dt;
+      if (this.stateTimer>2.5){ this.state=1; this.stateTimer=0; }
+    } else { // 頭投げ
+      if (this.stateTimer>0.6 && this.stateTimer<0.7){
+        const dirToP = sign(p.x - this.x)||-1;
+        game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+10,
+          dirToP*340, -300, {emoji:"💀", dmg:1, life:3.0, fromEnemy:true, gravity:true, spin:6}));
+      }
+      if (this.stateTimer>2.0){ this.state=0; this.stateTimer=0; }
+    }
+    this.facing = sign(p.x - this.x)||-1;
+  }
+  // ── 焔丸 ──
+  aiBoss2(dt, game, p){
+    this.stateTimer += dt;
+    if (this.state===0){ // 3WAY火炎
+      if (this.stateTimer>1.0 && this.stateTimer<1.1){
+        const dirToP = sign(p.x - this.x)||-1;
+        for (let a=-0.25;a<=0.25;a+=0.25){
+          game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+            dirToP*Math.cos(a)*340, Math.sin(a)*340,
+            {emoji:"🔥", dmg:1, life:3.0, fromEnemy:true}));
+        }
+      }
+      if (this.stateTimer>2.2){ this.state=1; this.stateTimer=0; }
+    } else { // 飛び上がり急降下
+      if (this.stateTimer < 0.6){
+        this.y -= 300*dt;
+      } else if (this.stateTimer < 1.4){
+        const dx = p.x - this.x; this.x += sign(dx)*220*dt;
+      } else {
+        this.y += 800*dt;
+        if (this.y > GROUND_Y - this.h){
+          this.y = GROUND_Y - this.h;
+          this.state = 0; this.stateTimer=0;
+          game.shake = 0.3;
+        }
+      }
+    }
+    this.facing = sign(p.x - this.x) || -1;
+  }
+  // ── 凍て眼 ──
+  aiBoss3(dt, game, p){
+    this.stateTimer += dt;
+    this.y = this.bobBase + Math.sin(this.timer*1.2)*30;
+    if (this.state===0){ // 氷柱ホーミング
+      if (this.stateTimer>0.7){
+        for (let i=0;i<3;i++){
+          const ang = (i-1)*0.3 + Math.PI;
+          const vx = Math.cos(ang) * (p.x>this.x?340:-340);
+          const vy = Math.sin(ang) * 200 + (p.y-this.y)*0.5;
+          game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+            vx, vy, {emoji:"❄️", dmg:1, life:3.0, fromEnemy:true}));
+        }
+        this.stateTimer=0; this.state=1;
+      }
+    } else if (this.state===1){
+      if (this.stateTimer>1.0){ this.state=2; this.stateTimer=0; }
+    } else { // 突進
+      if (this.stateTimer < 0.4) { /* 暗転(描画側) */ }
+      else if (this.stateTimer < 1.0){
+        const dx = p.x - this.x;
+        this.x += sign(dx) * 480 * dt;
+      } else {
+        this.state=0; this.stateTimer=0;
+      }
+    }
+    this.facing = sign(p.x - this.x)||-1;
+  }
+  // ── 文楽 ──
+  aiBoss4(dt, game, p){
+    this.stateTimer += dt;
+    this.y = this.bobBase + Math.sin(this.timer*2)*20;
+    if (this.state===0){ // 突進
+      const dx = p.x - this.x;
+      this.x += sign(dx)*180*dt;
+      if (this.stateTimer>1.5){ this.state=1; this.stateTimer=0; }
+    } else if (this.state===1){ // 札投擲
+      if (this.stateTimer>0.6 && this.stateTimer<0.7){
+        for (let a=-0.6;a<=0.6;a+=0.3){
+          const dirToP = sign(p.x - this.x)||-1;
+          game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+            dirToP*Math.cos(a)*340, Math.sin(a)*200,
+            {emoji:"🃏", dmg:1, life:3.0, fromEnemy:true, spin:8}));
+        }
+      }
+      if (this.stateTimer>2.0){ this.state=0; this.stateTimer=0; }
+    }
+    this.facing = sign(p.x - this.x)||-1;
+  }
+  // ── 業鎌鬼 ──
+  aiBoss5(dt, game, p){
+    this.stateTimer += dt;
+    this.y = GROUND_Y - this.h;
+    if (this.state===0){ // 薙ぎ払い予兆
+      if (this.stateTimer>1.2 && this.stateTimer<1.3){
+        // 薙ぎ払い: 接触判定強化(状態フラグで描画も巨大化)
+        this.state=1; this.stateTimer=0;
+      }
+    } else if (this.state===1){ // 薙ぎ払い実行(0.6s)
+      if (this.stateTimer>0.6){ this.state=2; this.stateTimer=0; }
+    } else if (this.state===2){ // 渦
+      if (this.stateTimer>0.5 && this.stateTimer<0.6){
+        game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+          (sign(p.x - this.x)||-1)*280, 0, {emoji:"🌀", dmg:1, life:2.5, fromEnemy:true, spin:10}));
+      }
+      if (this.stateTimer>1.5){ this.state=0; this.stateTimer=0; }
+    }
+    const dx = p.x - this.x;
+    if (this.state!==1) this.x += sign(dx)*80*dt;
+    this.facing = sign(dx)||-1;
+  }
+  // ── 黒煉魔王 第1形態 ──
+  aiFinal1(dt, game, p){
+    this.stateTimer += dt;
+    if (this.state===0){ // 三日月斬
+      if (this.stateTimer>0.8 && this.stateTimer<0.9){
+        const dirToP = sign(p.x - this.x)||-1;
+        game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+          dirToP*300, -100, {emoji:"🌑", dmg:1, life:3.0, fromEnemy:true, spin:6, gravity:true}));
+      }
+      if (this.stateTimer>2.0){ this.state=1; this.stateTimer=0; }
+    } else if (this.state===1){ // テレポート急降下
+      if (this.stateTimer<0.1){
+        this.x = p.x + (Math.random()<0.5?-200:200);
+        this.y = PLAY_TOP + 40;
+      } else if (this.stateTimer<0.8){
+        // 影予兆
+      } else if (this.stateTimer<1.5){
+        this.y += 900*dt;
+        if (this.y > GROUND_Y - this.h){
+          this.y = GROUND_Y - this.h;
+          this.state=2; this.stateTimer=0;
+          game.shake=0.3;
+        }
+      } else {
+        // フェイルセーフ: 1.5秒以上経っても地面に着けない場合は強制接地
+        this.y = GROUND_Y - this.h;
+        this.state=2; this.stateTimer=0;
+      }
+    } else { // 硬直＆召喚
+      if (this.stateTimer>0.5 && this.stateTimer<0.6){
+        // バット召喚
+        for (let i=0;i<3;i++){
+          const e = new Enemy("bat", this.x + rand(-200,200), PLAY_TOP+100+rand(0,80));
+          e.bobBase = e.y;
+          game.enemies.push(e);
+        }
+      }
+      if (this.stateTimer>1.5){ this.state=0; this.stateTimer=0; }
+    }
+    this.facing = sign(p.x - this.x)||-1;
+  }
+  // ── 真の姿 第2形態 ──
+  aiFinal2(dt, game, p){
+    this.stateTimer += dt;
+    this.y = this.bobBase + Math.sin(this.timer*1.5)*40;
+    if (this.state===0){ // 全方位レーザー
+      if (this.stateTimer>0.8 && this.stateTimer<0.9){
+        for (let i=0;i<8;i++){
+          const a = (i/8)*Math.PI*2 + this.timer*0.5;
+          game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+            Math.cos(a)*300, Math.sin(a)*300, {emoji:"💥", dmg:1, life:2.5, fromEnemy:true, spin:8}));
+        }
+      }
+      if (this.stateTimer>1.8){ this.state=1; this.stateTimer=0; }
+    } else if (this.state===1){ // 多眼弾幕
+      if (this.stateTimer>0.6 && this.stateTimer<0.7){
+        const dirToP = sign(p.x - this.x)||-1;
+        for (let i=0;i<7;i++){
+          const ang = (i-3)*0.18;
+          game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h/2,
+            dirToP*Math.cos(ang)*360, Math.sin(ang)*220,
+            {emoji:"👁️", dmg:1, life:2.5, fromEnemy:true}));
+        }
+      }
+      if (this.stateTimer>1.8){ this.state=2; this.stateTimer=0; }
+    } else if (this.state===2){ // 絶望のブレス
+      if (this.stateTimer>0.8 && this.stateTimer<0.9){
+        for (let i=-3;i<=3;i++){
+          game.eProjectiles.push(new Projectile(this.x+this.w/2, this.y+this.h-20,
+            (sign(p.x-this.x)||-1)*300 + i*30, 80, {emoji:"💥", dmg:1, life:3.0, fromEnemy:true}));
+        }
+      }
+      if (this.stateTimer>2.0){ this.state=0; this.stateTimer=0; }
+    }
+    const dx = p.x - this.x;
+    this.x += sign(dx)*60*dt;
+    this.facing = sign(dx)||-1;
+  }
+
+  draw(ctx, camX){
+    if (this.dead) return;
+    ctx.save();
+    const sx = this.x - camX + this.w/2;
+    const sy = this.y + this.h/2;
+    if (this.flash>0){
+      // 白フラッシュ
+      ctx.globalCompositeOperation = "lighter";
+    }
+    let size = this.isBoss ? Math.max(this.w, this.h)*0.95 : Math.max(this.w, this.h)*0.95;
+    ctx.font = `${size}px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    if (this.facing>0){
+      ctx.translate(sx, sy); ctx.scale(-1,1);
+      ctx.fillText(this.emoji, 0, 0);
+    } else {
+      ctx.fillText(this.emoji, sx, sy);
+    }
+    ctx.restore();
+    // ボスHPバー
+    if (this.isBoss){
+      const bx = 200, by = HUD_TOP + 4, bw = W - 400, bh = 14;
+      ctx.save();
+      ctx.fillStyle="#220011"; ctx.fillRect(bx,by,bw,bh);
+      ctx.fillStyle="#cc0033"; ctx.fillRect(bx,by, bw*(this.hp/this.maxHp), bh);
+      ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.strokeRect(bx,by,bw,bh);
+      ctx.fillStyle="#fffbe6"; ctx.font=`bold 20px ${UI_FONT}`;
+      ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+      ctx.fillText(this.name, W/2, by-4);
+      ctx.restore();
+    }
+  }
+}
+
+// ────────────────────────────────────────────────
+// Item (回復・鎧・コイン)
+// ────────────────────────────────────────────────
+class Item {
+  constructor(x,y,kind){
+    this.x=x; this.y=y; this.w=32; this.h=32;
+    this.kind=kind; this.vy=-200; this.life=10; this.dead=false;
+    this.emoji = kind==="heart"?"❤️":kind==="armor"?"🛡️":kind==="coin"?"🪙":"💰";
+    this.t=0;
+  }
+  update(dt){
+    this.life-=dt; this.t+=dt;
+    if (this.life<=0) this.dead=true;
+    this.vy += 1200*dt;
+    this.y += this.vy*dt;
+    if (this.y + this.h > GROUND_Y){
+      this.y = GROUND_Y - this.h; this.vy = 0;
+    }
+  }
+  draw(ctx, camX){
+    if (this.dead) return;
+    ctx.save();
+    const blink = this.life < 3 ? (Math.floor(this.t*8)%2===0) : true;
+    if (!blink) { ctx.restore(); return; }
+    ctx.font = `36px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText(this.emoji, this.x-camX+16, this.y+16);
+    ctx.restore();
+  }
+}
+
+// ────────────────────────────────────────────────
+// Particle - 簡易パーティクル
+// ────────────────────────────────────────────────
+class Particle {
+  constructor(x,y,vx,vy,life,emoji,scale){
+    this.x=x;this.y=y;this.vx=vx;this.vy=vy;
+    this.life=life;this.maxLife=life;
+    this.emoji=emoji||"✨";this.scale=scale||24;
+    this.dead=false;
+  }
+  update(dt){
+    this.life-=dt; if (this.life<=0) this.dead=true;
+    this.vy += 600*dt;
+    this.x += this.vx*dt; this.y += this.vy*dt;
+  }
+  draw(ctx, camX){
+    if (this.dead) return;
+    const a = this.life/this.maxLife;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.font = `${this.scale}px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText(this.emoji, this.x - camX, this.y);
+    ctx.restore();
+  }
+}
+
+// ────────────────────────────────────────────────
+// Player - 千徳
+// ────────────────────────────────────────────────
+class Player {
+  constructor(){
+    this.reset();
+    this.score=0; this.lives=3;
+  }
+  reset(){
+    this.x=120; this.y=GROUND_Y-128;
+    this.w=56; this.h=120;
+    this.vx=0; this.vy=0;
+    this.onGround=false;
+    this.facing=1;
+    this.armor=true;       // 鎧装束(true) / 褌(false)
+    this.invul=0;          // 被弾無敵時間
+    this.shootCd=0;
+    this.weaponIdx=0;
+    this.crouch=false;
+    this.dead=false;
+    this.deadTimer=0;
+    this.tokuGauge=0;
+    this.superMode=0;      // 超千徳モード残り
+    this.attackAnim=0;
+  }
+  fullReset(){
+    this.score=0; this.lives=3;
+    this.reset();
+  }
+  weapon(){ return WEAPONS[this.weaponIdx]; }
+  switchWeapon(){
+    this.weaponIdx = (this.weaponIdx+1) % WEAPONS.length;
+    Audio.sfx("select");
+  }
+  addScore(s){ this.score += s; }
+  hurt(game){
+    if (this.superMode>0) return; // 超千徳モード中は無敵
+    if (this.invul>0 || this.dead) return;
+    Audio.sfx("damage");
+    this.invul = 1.5;
+    game.shake = 0.25;
+    if (this.armor){
+      this.armor=false;
+      // 鎧脱げ演出
+      for (let i=0;i<6;i++){
+        game.particles.push(new Particle(this.x+this.w/2,this.y+this.h/2,
+          rand(-200,200), rand(-300,-50), 0.8, "🛡️", 20));
+      }
+    } else {
+      this.dead = true; this.deadTimer = 0;
+      this.vy = -500; this.vx = 0;
+      Audio.sfx("die");
+    }
+  }
+  shoot(game){
+    if (this.shootCd>0) return;
+    const w = this.weapon();
+    const live = game.pProjectiles.filter(p=>p._wid===w.id).length;
+    if (live >= w.max) return;
+    this.shootCd = this.superMode>0 ? w.cd*0.5 : w.cd;
+    this.attackAnim = 0.15;
+    Audio.sfx("shoot");
+    const sx = this.x + (this.facing>0?this.w:0);
+    const sy = this.y + (this.crouch?this.h*0.7:this.h*0.4);
+    let pr;
+    switch(w.type){
+      case "straight": {
+        pr = new Projectile(sx, sy, this.facing*w.speed, 0,
+          {emoji:w.emoji, dmg:w.dmg, life:2.0});
+        break;
+      }
+      case "arc": {
+        pr = new Projectile(sx, sy, this.facing*w.speed*0.6, -380,
+          {emoji:w.emoji, dmg:w.dmg, life:3.0, gravity:true, spin:6, residual:w.residual});
+        break;
+      }
+      case "pierce": {
+        pr = new Projectile(sx, sy, this.facing*w.speed, 0,
+          {emoji:w.emoji, dmg:w.dmg, life:2.0, pierce:true});
+        break;
+      }
+      case "boomerang": {
+        pr = new Projectile(sx, sy, this.facing*w.speed, 0,
+          {emoji:w.emoji, dmg:w.dmg, life:3.0, boomerang:true, spin:14, pierce:true});
+        break;
+      }
+    }
+    if (this.superMode>0) { pr.dmg = Math.ceil(pr.dmg*1.5); pr._golden = true; }
+    pr._wid = w.id;
+    game.pProjectiles.push(pr);
+  }
+  update(dt, game){
+    if (this.dead){
+      this.deadTimer += dt;
+      this.vy += 1500*dt;
+      this.y += this.vy*dt;
+      return;
+    }
+    if (this.invul>0) this.invul -= dt;
+    if (this.shootCd>0) this.shootCd -= dt;
+    if (this.attackAnim>0) this.attackAnim -= dt;
+    if (this.superMode>0) this.superMode -= dt;
+
+    // 入力
+    const speed = (this.armor?260:286) * (this.crouch?0.0:1.0);
+    let mx = 0;
+    if (Input.isDown("ArrowLeft"))  { mx=-1; this.facing=-1; }
+    if (Input.isDown("ArrowRight")) { mx= 1; this.facing= 1; }
+    // しゃがみは接地中のみ(空中でhが縮むと着地時に地面めり込みが起きるため)
+    this.crouch = this.onGround && (Input.isDown("Shift") || Input.isDown("ArrowDown"));
+    // 魔界村流: 空中では方向転換不可。接地中のみvx更新
+    if (this.onGround) this.vx = mx*speed;
+
+    // ジャンプ
+    if ((Input.consumePressed("ArrowUp") || Input.consumePressed(" ")) && this.onGround && !this.crouch){
+      this.vy = -720;
+      this.onGround = false;
+      Audio.sfx("jump");
+    }
+    // 攻撃: autofire武器は押しっぱ、それ以外は単発トリガー
+    const w = this.weapon();
+    if (w.autofire){
+      if (Input.isDown("z") || Input.isDown("Z")) this.shoot(game);
+    } else {
+      if (Input.consumePressed("z") || Input.consumePressed("Z")) this.shoot(game);
+    }
+    // 武器切替
+    if (Input.consumePressed("x") || Input.consumePressed("X")){
+      this.switchWeapon();
+    }
+    // 超千徳発動
+    if (this.tokuGauge>=100 && (Input.consumePressed("c") || Input.consumePressed("C"))){
+      this.superMode = 6.0; this.tokuGauge = 0;
+      Audio.sfx("win");
+      for (let i=0;i<20;i++){
+        game.particles.push(new Particle(this.x+this.w/2,this.y+this.h/2,
+          rand(-300,300), rand(-400,-50), 1.0, "✨", 28));
+      }
+    }
+
+    // 重力
+    this.vy += 1800*dt;
+    this.x += this.vx*dt;
+
+    // 氷床上での摩擦低: 接地中に方向入力が無くてもvxが徐々にしか落ちない
+    const stage = game.stage;
+    const pcx = this.x + this.w/2;
+    let onIce = false;
+    if (this.onGround && stage.hazards){
+      for (const hz of stage.hazards){
+        if (hz.kind!=="ice") continue;
+        if (pcx >= hz.x && pcx <= hz.x+hz.w){ onIce = true; break; }
+      }
+    }
+    if (onIce){
+      // 氷床: 入力が無いときに vx をほぼ減衰させない(慣性が残る)
+      if (mx === 0) this.vx *= Math.pow(0.6, dt*60*0.02);
+    }
+
+    this.y += this.vy*dt;
+
+    // 地形コリジョン
+    const h = this.crouch ? this.h*0.7 : this.h;
+
+    // (1) 落下中の場合、プラットフォーム上面に着地判定
+    let landedOnPlatform = false;
+    if (this.vy >= 0 && stage.platforms){
+      for (const pl of stage.platforms){
+        // X重なり判定
+        if (pcx < pl.x || pcx > pl.x + pl.w) continue;
+        const prevBottom = this.y + h - this.vy*dt;
+        const curBottom = this.y + h;
+        if (prevBottom <= pl.y + 2 && curBottom >= pl.y){
+          this.y = pl.y - h;
+          this.vy = 0;
+          this.onGround = true;
+          landedOnPlatform = true;
+          break;
+        }
+      }
+    }
+
+    // (2) 落とし穴(pit)上にいる場合、地面接触を無効化
+    let overPit = false;
+    if (!landedOnPlatform && stage.hazards){
+      for (const hz of stage.hazards){
+        if (hz.kind!=="pit") continue;
+        if (pcx >= hz.x && pcx <= hz.x+hz.w){ overPit = true; break; }
+      }
+    }
+
+    if (!landedOnPlatform){
+      if (this.y + h >= GROUND_Y && !overPit){
+        this.y = GROUND_Y - h;
+        this.vy = 0;
+        this.onGround = true;
+      } else {
+        this.onGround = false;
+      }
+    }
+
+    // (3) pit に落下しきったら死亡
+    if (overPit && this.y > PLAY_BOTTOM + 60){
+      this.armor = false;
+      this.dead = true;
+      this.deadTimer = 0;
+      this.vy = -300;
+      Audio.sfx("die");
+    }
+
+    // (4) 棘床(spike) 接触で即下着化(armor剥奪)
+    if (stage.hazards){
+      for (const hz of stage.hazards){
+        if (hz.kind!=="spike") continue;
+        const hzBox = {x:hz.x, y:hz.y, w:hz.w, h:GROUND_Y+TILE - hz.y};
+        const pb = {x:this.x, y:this.y, w:this.w, h:h};
+        if (aabb(pb, hzBox) && this.invul<=0 && !this.dead){
+          this.hurt(game);
+          break;
+        }
+      }
+    }
+
+    // (5) 崩落床(crumble) 乗ったら0.6秒で消える
+    if (stage.hazards){
+      for (const hz of stage.hazards){
+        if (hz.kind!=="crumble") continue;
+        // 一度起動したタイマーは毎フレーム進める
+        if (hz.crumbleTimer !== undefined && !hz.dead){
+          hz.crumbleTimer -= dt;
+          if (hz.crumbleTimer <= 0) hz.dead = true;
+        }
+        if (hz.dead) continue;
+        if (pcx < hz.x || pcx > hz.x+hz.w) continue;
+        const prevBottom = this.y + h - this.vy*dt;
+        const curBottom = this.y + h;
+        // 上に乗っている判定
+        if (this.vy >= 0 && prevBottom <= hz.y + 2 && curBottom >= hz.y){
+          this.y = hz.y - h;
+          this.vy = 0;
+          this.onGround = true;
+          if (hz.crumbleTimer === undefined) hz.crumbleTimer = 0.6;
+        }
+      }
+    }
+
+    // ステージ範囲
+    if (this.x < 0) this.x = 0;
+    if (this.x > stage.length - this.w) this.x = stage.length - this.w;
+  }
+  draw(ctx, camX){
+    const sx = this.x - camX + this.w/2;
+    const h = this.crouch ? this.h*0.7 : this.h;
+    const sy = this.y + h/2;
+    // 無敵中点滅
+    if (this.invul>0 && Math.floor(this.invul*20)%2===0 && !this.dead) return;
+
+    ctx.save();
+    // 死亡演出
+    if (this.dead){
+      const t = this.deadTimer;
+      ctx.font = `96px ${EMOJI_FONT}`;
+      ctx.textAlign="center"; ctx.textBaseline="middle";
+      ctx.translate(sx, sy);
+      ctx.rotate(t*3);
+      ctx.fillText("💀", 0, 0);
+      ctx.restore();
+      return;
+    }
+    // 超千徳: 金色オーラ
+    if (this.superMode>0){
+      ctx.save();
+      ctx.fillStyle = "rgba(255,200,40,0.25)";
+      ctx.beginPath();
+      ctx.arc(sx, sy, 80, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+    }
+    // 本体絵文字
+    let emo;
+    if (this.crouch) emo = "🧎";
+    else if (!this.onGround) emo = "🤸";
+    else if (Math.abs(this.vx) > 10) emo = (Math.floor(performance.now()/180)%2===0?"🏃":"🤺");
+    else emo = "🤺";
+    // 鎧失った場合: 下着重ね
+    const size = 92;
+    ctx.font = `${size}px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    // 超千徳モード: 金色グローを本体に
+    if (this.superMode>0){
+      ctx.shadowColor = "#ffd700";
+      ctx.shadowBlur = 25;
+    }
+    if (this.facing<0){
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.scale(-1,1);
+      ctx.fillText(emo, 0, 0);
+      if (!this.armor) ctx.fillText("🩲", 0, 8);
+      ctx.restore();
+    } else {
+      ctx.fillText(emo, sx, sy);
+      if (!this.armor) ctx.fillText("🩲", sx, sy+8);
+    }
+    if (this.superMode>0){
+      ctx.shadowBlur = 0;
+    }
+    // 攻撃時、手前に武器を強調
+    if (this.attackAnim>0){
+      ctx.font = `48px ${EMOJI_FONT}`;
+      const w = this.weapon();
+      ctx.fillText(w.emoji, sx + this.facing*46, sy);
+    }
+    ctx.restore();
+  }
+}
+
+// ────────────────────────────────────────────────
+// Renderer (背景・HUD描画)
+// ────────────────────────────────────────────────
+class Renderer {
+  constructor(ctx){ this.ctx=ctx; }
+
+  // 縦グラデ背景
+  drawBackground(stage, camX, t){
+    const ctx = this.ctx;
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0, stage.bgTop);
+    g.addColorStop(1, stage.bgBot);
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+    // 遠景(月・星) 0.2x
+    ctx.save();
+    ctx.font = `120px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText(stage.farMoon, W*0.78 - (camX*0.05)%W, 140);
+    // 遠景オブジェ
+    ctx.font = `72px ${EMOJI_FONT}`;
+    for (let i=0;i<6;i++){
+      const fx = ((i*420) - camX*0.2) % (W+400);
+      const ax = fx<0?fx+W+400:fx;
+      ctx.globalAlpha = 0.7;
+      ctx.fillText(stage.far, ax-200, 240);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // 中景 0.5x
+    ctx.save();
+    ctx.font = `96px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    for (let i=0;i<10;i++){
+      const fx = ((i*320) - camX*0.5) % (W+600);
+      const ax = fx<0?fx+W+600:fx;
+      ctx.globalAlpha = 0.85;
+      ctx.fillText(stage.mid, ax-300, PLAY_BOTTOM-180);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // 手前装飾 1.0x
+    ctx.save();
+    ctx.font = `64px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    for (let i=0;i<24;i++){
+      const wx = i*340 + 200;
+      const sx = wx - camX;
+      if (sx<-100 || sx>W+100) continue;
+      ctx.fillText(stage.front, sx, PLAY_BOTTOM-100);
+    }
+    ctx.restore();
+
+    // 雪/火粉などの粒子
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    ctx.font = `20px ${EMOJI_FONT}`;
+    for (let i=0;i<30;i++){
+      const sx = ((i*97 + t*60) % W);
+      const sy = ((i*131 + t*200) % (PLAY_BOTTOM-PLAY_TOP)) + PLAY_TOP;
+      let e = "✨";
+      if (stage.bgTop.startsWith("#3a0a") || stage.bgTop.startsWith("#1a00")) e = "🔥";
+      else if (stage.bgTop.startsWith("#0a1a")) e = "❄️";
+      else if (stage.bgTop.startsWith("#1a10")) e = "⭐";
+      ctx.fillText(e, sx, sy);
+    }
+    ctx.restore();
+  }
+
+  drawGround(stage, camX){
+    const ctx = this.ctx;
+    // 地面ベース(pitに該当する範囲は描画しない)
+    const pits = (stage.hazards||[]).filter(h=>h.kind==="pit");
+    const inPit = (x) => pits.some(p => x >= p.x && x <= p.x + p.w);
+
+    // 地面ベース(横方向にpitを抜きながら描画)
+    ctx.fillStyle = "#2a1a1a";
+    const startWX = Math.floor(camX/16)*16;
+    for (let wx=startWX; wx<camX+W+16; wx+=16){
+      if (inPit(wx+8)) continue;
+      ctx.fillRect(wx - camX, GROUND_Y, 16, PLAY_BOTTOM-GROUND_Y);
+    }
+    // 上端ライン
+    ctx.fillStyle = "#5a3a2a";
+    for (let wx=startWX; wx<camX+W+16; wx+=16){
+      if (inPit(wx+8)) continue;
+      ctx.fillRect(wx - camX, GROUND_Y, 16, 8);
+    }
+    // タイル絵文字
+    ctx.save();
+    ctx.font = `56px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    const startX = Math.floor(camX/TILE)*TILE;
+    for (let x=startX; x<camX+W+TILE; x+=TILE){
+      const sx = x - camX + TILE/2;
+      if (inPit(x + TILE/2)) continue;
+      ctx.fillText(stage.floorEmoji, sx, GROUND_Y+TILE/2);
+    }
+    ctx.restore();
+
+    // プラットフォーム描画
+    if (stage.platforms){
+      ctx.save();
+      ctx.font = `40px ${EMOJI_FONT}`;
+      ctx.textAlign="center"; ctx.textBaseline="middle";
+      for (const pl of stage.platforms){
+        const psx = pl.x - camX;
+        if (psx > W+100 || psx + pl.w < -100) continue;
+        // 板の本体
+        ctx.fillStyle = "#6a4a2a";
+        ctx.fillRect(psx, pl.y, pl.w, 12);
+        ctx.fillStyle = "#3a2a1a";
+        ctx.fillRect(psx, pl.y+12, pl.w, 8);
+        // 中央に floorEmoji を小さく
+        ctx.fillText(stage.floorEmoji, psx + pl.w/2, pl.y+10);
+      }
+      ctx.restore();
+    }
+
+    // hazards描画
+    if (stage.hazards){
+      ctx.save();
+      ctx.textAlign="center"; ctx.textBaseline="middle";
+      for (const hz of stage.hazards){
+        const hsx = hz.x - camX;
+        if (hsx > W+100 || hsx + hz.w < -100) continue;
+        if (hz.kind === "spike"){
+          ctx.font = `42px ${EMOJI_FONT}`;
+          const n = Math.ceil(hz.w / 44);
+          for (let i=0;i<n;i++){
+            ctx.fillText("🔻", hsx + 22 + i*44, hz.y + 16);
+          }
+        } else if (hz.kind === "ice"){
+          ctx.font = `48px ${EMOJI_FONT}`;
+          const n = Math.ceil(hz.w / 56);
+          for (let i=0;i<n;i++){
+            ctx.fillText("🧊", hsx + 28 + i*56, GROUND_Y + TILE/2);
+          }
+        } else if (hz.kind === "crumble"){
+          if (hz.dead) continue;
+          ctx.font = `36px ${EMOJI_FONT}`;
+          // 崩れ間際は点滅
+          const blink = hz.crumbleTimer !== undefined
+            ? (Math.floor(hz.crumbleTimer*10)%2===0)
+            : true;
+          if (!blink) continue;
+          ctx.fillStyle = "#7a5a3a";
+          ctx.fillRect(hsx, hz.y, hz.w, 12);
+          const n = Math.ceil(hz.w / 44);
+          for (let i=0;i<n;i++){
+            ctx.fillText("🟫", hsx + 22 + i*44, hz.y + 6);
+          }
+        }
+      }
+      ctx.restore();
+    }
+  }
+
+  drawHUD(game){
+    const ctx = this.ctx;
+    const p = game.player;
+    // 上部HUD背景
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.fillRect(0,0,W,HUD_TOP);
+    ctx.fillRect(0,H-HUD_BOTTOM,W,HUD_BOTTOM);
+
+    ctx.font = `bold 22px ${UI_FONT}`;
+    ctx.textAlign="left"; ctx.textBaseline="middle";
+    ctx.fillStyle = "#fffbe6";
+
+    // HP/鎧
+    ctx.font = `30px ${EMOJI_FONT}`;
+    ctx.fillText(p.armor?"🛡️":"🩲", 16, HUD_TOP/2);
+    ctx.font = `bold 22px ${UI_FONT}`;
+    ctx.fillText(p.armor?"鎧装束":"褌(あと1)", 56, HUD_TOP/2);
+
+    // 武器
+    const w = p.weapon();
+    ctx.font = `34px ${EMOJI_FONT}`;
+    ctx.fillText(w.emoji, 250, HUD_TOP/2);
+    ctx.font = `bold 22px ${UI_FONT}`;
+    ctx.fillText(w.name + " [X切替]", 290, HUD_TOP/2);
+
+    // スコア
+    ctx.fillStyle = "#ffd700";
+    ctx.font = `bold 26px ${UI_FONT}`;
+    ctx.textAlign="center";
+    ctx.fillText("⭐ " + String(p.score).padStart(7,"0"), W/2 + 200, HUD_TOP/2);
+
+    // タイマー
+    const mm = Math.floor(game.stageTime/60), ss = Math.floor(game.stageTime%60);
+    ctx.fillStyle = "#fffbe6";
+    ctx.textAlign="right";
+    ctx.fillText(`⏱ ${String(mm).padStart(2,"0")}:${String(ss).padStart(2,"0")}`, W-180, HUD_TOP/2);
+
+    // 残機
+    ctx.font = `30px ${EMOJI_FONT}`;
+    ctx.textAlign="right";
+    ctx.fillText("🥷×"+p.lives, W-16, HUD_TOP/2);
+
+    // 徳ゲージ
+    const gx=16, gy=HUD_TOP+8, gw=300, gh=10;
+    ctx.fillStyle="#330033"; ctx.fillRect(gx,gy,gw,gh);
+    ctx.fillStyle = p.superMode>0?"#ffd700":"#aa00aa";
+    ctx.fillRect(gx,gy,gw*(p.tokuGauge/100), gh);
+    ctx.strokeStyle="#fff"; ctx.lineWidth=1; ctx.strokeRect(gx,gy,gw,gh);
+    ctx.font=`14px ${UI_FONT}`; ctx.fillStyle="#fff"; ctx.textAlign="left"; ctx.textBaseline="middle";
+    ctx.fillText(p.tokuGauge>=100?"[C] 超千徳モード発動可!":"徳ゲージ", gx+gw+8, gy+gh/2);
+
+    // 下部HUD: ステージ名 + ミニマップ
+    ctx.fillStyle="#fffbe6";
+    ctx.font = `bold 22px ${UI_FONT}`;
+    ctx.textAlign="left"; ctx.textBaseline="middle";
+    ctx.fillText(game.stage.name, 16, H-HUD_BOTTOM/2);
+
+    // ミニマップ
+    const mx=W-360, my=H-HUD_BOTTOM/2-8, mw=320, mh=16;
+    ctx.fillStyle="#222"; ctx.fillRect(mx,my,mw,mh);
+    const prog = clamp(p.x / game.stage.length, 0, 1);
+    ctx.fillStyle="#ffaa33"; ctx.fillRect(mx, my, mw*prog, mh);
+    ctx.fillStyle="#fff"; ctx.fillRect(mx + mw - 6, my-2, 6, mh+4);
+    ctx.strokeStyle="#fff"; ctx.lineWidth=1; ctx.strokeRect(mx,my,mw,mh);
+  }
+}
+
+// ────────────────────────────────────────────────
+// Game - 状態管理＆メインループ
+// ────────────────────────────────────────────────
+class Game {
+  constructor(canvas){
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.renderer = new Renderer(this.ctx);
+    this.state = "title";   // title / play / clear / over / ending / pause
+    this.stageIdx = 0;
+    this.stage = STAGES[0];
+    this.player = new Player();
+    this.enemies = [];
+    this.pProjectiles = [];
+    this.eProjectiles = [];
+    this.items = [];
+    this.particles = [];
+    this.cameraX = 0;
+    this.spawned = new Set();
+    this.bossSpawned = false;
+    this.boss2Spawned = false;
+    this.checkpointReached = false;
+    this.stageTime = 0;
+    this.shake = 0;
+    this.fadeAlpha = 0;
+    this.transitionTimer = 0;
+    this.titleSelect = 0;
+    this.endingTimer = 0;
+    this.flashWhite = 0;
+    this.menuBlink = 0;
+    this.confirmDelay = 0;
+    this.boss = null;
+    this.superForced = false;
+  }
+  startGame(){
+    this.player.fullReset();
+    this.stageIdx = 0;
+    // 全ステージの崩落床状態を初期化
+    for (const st of STAGES){
+      if (st.hazards){
+        for (const hz of st.hazards){ delete hz.crumbleTimer; delete hz.dead; }
+      }
+    }
+    this.loadStage(0);
+    this.state = "play";
+    Audio.sfx("start");
+  }
+  loadStage(idx){
+    this.stageIdx = idx;
+    this.stage = STAGES[idx];
+    this.enemies = [];
+    this.pProjectiles = [];
+    this.eProjectiles = [];
+    this.items = [];
+    this.particles = [];
+    this.cameraX = 0;
+    this.spawned.clear();
+    this.bossSpawned = false;
+    this.boss2Spawned = false;
+    this.checkpointReached = false;
+    this.stageTime = 0;
+    this.boss = null;
+    this.superForced = false;
+    // 崩落床の状態をリセット
+    if (this.stage.hazards){
+      for (const hz of this.stage.hazards){
+        delete hz.crumbleTimer;
+        delete hz.dead;
+      }
+    }
+    this.player.reset();
+    this.player.x = 120;
+    // 武器は reset() で 0 に戻る(死亡→槍に戻る仕様)
+  }
+  spawnFromList(){
+    const stage = this.stage;
+    for (const sp of stage.spawns){
+      if (this.spawned.has(sp)) continue;
+      if (sp.x < this.cameraX + W + 60 && sp.x > this.cameraX - 100){
+        const def = ENEMY_DEFS[sp.type];
+        let y = GROUND_Y - def.h;
+        if (def.fly) y = PLAY_TOP + 80 + Math.random()*150;
+        const e = new Enemy(sp.type, sp.x, y);
+        e.bobBase = y; e.spawnX = sp.x;
+        this.enemies.push(e);
+        this.spawned.add(sp);
+      }
+    }
+    // ボススポーン
+    if (!this.bossSpawned && this.player.x > stage.length - 700){
+      const bossType = stage.boss;
+      const def = ENEMY_DEFS[bossType];
+      const bx = stage.length - 300;
+      // 空中ボス: fly属性 / 凍て眼(bossIteme) / ラスボス(finalP1/finalP2)
+      const by = (def.fly||bossType==="bossIteme"||bossType.startsWith("final"))
+        ? PLAY_TOP + 120 : GROUND_Y - def.h;
+      const e = new Enemy(bossType, bx, by);
+      e.bobBase = by;
+      this.boss = e;
+      this.enemies.push(e);
+      this.bossSpawned = true;
+      Audio.sfx("boss");
+    }
+  }
+  update(dt){
+    this.menuBlink += dt;
+    if (this.confirmDelay>0) this.confirmDelay -= dt;
+
+    // ESCポーズ
+    if ((this.state==="play"||this.state==="pause") && Input.consumePressed("Escape")){
+      this.state = (this.state==="play") ? "pause" : "play";
+    }
+
+    if (this.state === "title"){
+      if ((Input.consumePressed("Enter") || Input.consumePressed("z") || Input.consumePressed("Z")) && this.confirmDelay<=0){
+        this.startGame();
+      }
+      return;
+    }
+    if (this.state === "pause"){
+      return;
+    }
+    if (this.state === "over"){
+      this.transitionTimer += dt;
+      if (this.transitionTimer > 1.5 && (Input.consumePressed("Enter") || Input.consumePressed("z") || Input.consumePressed("Z"))){
+        this.state = "title";
+        this.confirmDelay = 0.3;
+        this.transitionTimer = 0;
+      }
+      return;
+    }
+    if (this.state === "clear"){
+      this.transitionTimer += dt;
+      if (this.transitionTimer > 1.5 && (Input.consumePressed("Enter") || Input.consumePressed("z") || Input.consumePressed("Z"))){
+        // 次ステージへ
+        if (this.stageIdx+1 < STAGES.length){
+          this.loadStage(this.stageIdx+1);
+          this.state = "play";
+        } else {
+          this.state = "ending"; this.endingTimer = 0;
+        }
+        this.transitionTimer = 0;
+      }
+      return;
+    }
+    if (this.state === "ending"){
+      this.endingTimer += dt;
+      if (this.endingTimer > 12 && (Input.consumePressed("Enter") || Input.consumePressed("z") || Input.consumePressed("Z"))){
+        this.state = "title";
+        this.confirmDelay = 0.3;
+      }
+      return;
+    }
+
+    // ── PLAY ──
+    this.stageTime += dt;
+    this.shake = Math.max(0, this.shake - dt);
+    if (this.flashWhite>0) this.flashWhite -= dt;
+
+    this.player.update(dt, this);
+    // 死亡処理
+    if (this.player.dead && this.player.deadTimer > 1.6){
+      this.player.lives -= 1;
+      if (this.player.lives <= 0){
+        this.state = "over";
+        this.transitionTimer = 0;
+        return;
+      } else {
+        // チェックポイントから復帰
+        const cpx = this.checkpointReached ? this.stage.checkpointX : 120;
+        this.player.reset();
+        this.player.x = Math.max(120, cpx);
+        this.player.invul = 1.5;
+        this.cameraX = Math.max(0, this.player.x - W/3);
+        // 復帰時、背後の雑魚と残存弾は一掃(ボスは保持)
+        this.enemies = this.enemies.filter(e=>e.isBoss);
+        this.eProjectiles = [];
+        this.pProjectiles = [];
+      }
+    }
+
+    // チェックポイント
+    if (!this.checkpointReached && this.stage.checkpointX>0 && this.player.x > this.stage.checkpointX){
+      this.checkpointReached = true;
+      this.particles.push(new Particle(this.player.x+this.player.w/2, this.player.y, 0, -200, 1.2, "⭐", 36));
+      Audio.sfx("pickup");
+    }
+
+    // スポーン
+    this.spawnFromList();
+
+    // 敵更新
+    for (const e of this.enemies) e.update(dt, this);
+
+    // プロジェクタイル更新
+    for (const p of this.pProjectiles) p.update(dt, this);
+    for (const p of this.eProjectiles) p.update(dt, this);
+
+    // アイテム更新
+    for (const it of this.items) it.update(dt);
+
+    // パーティクル
+    for (const pa of this.particles) pa.update(dt);
+
+    // 衝突: プレイヤー弾 vs 敵
+    for (const proj of this.pProjectiles){
+      if (proj.dead) continue;
+      for (const e of this.enemies){
+        if (e.dead) continue;
+        if (proj.hitSet.has(e)) continue;
+        const pb = {x:proj.x-18, y:proj.y-18, w:36, h:36};
+        const eb = {x:e.x, y:e.y, w:e.w, h:e.h};
+        if (aabb(pb,eb)){
+          if (e.hurt(proj.dmg, this)){
+            this.particles.push(new Particle(e.x+e.w/2, e.y+e.h/2, rand(-80,80), -200, 0.4, "💥", 32));
+          }
+          proj.hitSet.add(e);
+          if (!proj.pierce && !proj.boomerang) proj.dead = true;
+        }
+      }
+    }
+    // 敵弾 vs プレイヤー
+    if (this.player.invul<=0 && !this.player.dead){
+      const ph = this.player.crouch ? this.player.h*0.7 : this.player.h;
+      const pb = {x:this.player.x, y:this.player.y, w:this.player.w, h:ph};
+      for (const proj of this.eProjectiles){
+        if (proj.dead) continue;
+        const eb = {x:proj.x-18, y:proj.y-18, w:36, h:36};
+        if (aabb(pb,eb)){
+          this.player.hurt(this);
+          proj.dead = true;
+          break;
+        }
+      }
+    }
+    // 敵 vs プレイヤー(接触)
+    if (this.player.invul<=0 && !this.player.dead){
+      const ph = this.player.crouch ? this.player.h*0.7 : this.player.h;
+      const pb = {x:this.player.x+6, y:this.player.y+6, w:this.player.w-12, h:ph-12};
+      for (const e of this.enemies){
+        if (e.dead) continue;
+        const eb = {x:e.x+6, y:e.y+6, w:e.w-12, h:e.h-12};
+        if (aabb(pb,eb)){
+          this.player.hurt(this);
+          break;
+        }
+      }
+    }
+    // アイテム取得
+    {
+      const ph = this.player.crouch ? this.player.h*0.7 : this.player.h;
+      const pb = {x:this.player.x, y:this.player.y, w:this.player.w, h:ph};
+      for (const it of this.items){
+        if (it.dead) continue;
+        if (aabb(pb, it)){
+          it.dead = true;
+          Audio.sfx("pickup");
+          if (it.kind==="heart"){ this.player.addScore(300); this.player.invul = Math.max(this.player.invul, 0.3); }
+          else if (it.kind==="armor"){ this.player.armor = true; this.player.addScore(500); }
+          else if (it.kind==="coin"){ this.player.addScore(100); }
+        }
+      }
+    }
+
+    // ボス第2形態
+    if (this.stage.isFinal && this.bossSpawned && !this.boss2Spawned){
+      if (this.boss && this.boss.dead){
+        // 第2形態出現
+        const def = ENEMY_DEFS["finalP2"];
+        const e = new Enemy("finalP2", this.boss.x-30, PLAY_TOP+80);
+        e.bobBase = e.y;
+        this.boss = e;
+        this.enemies.push(e);
+        this.boss2Spawned = true;
+        this.flashWhite = 0.6;
+        Audio.sfx("boss");
+      }
+    }
+    // 超千徳モード強制発動: 第2形態HP10%以下で1度だけ
+    if (this.boss2Spawned && this.boss && !this.boss.dead && !this.superForced
+        && this.boss.hp/this.boss.maxHp < 0.1){
+      this.player.superMode = 8.0;
+      this.flashWhite = 1.0;
+      this.superForced = true;
+      Audio.sfx("win");
+      for (let i=0;i<30;i++){
+        this.particles.push(new Particle(this.player.x+this.player.w/2,this.player.y+this.player.h/2,
+          rand(-400,400), rand(-500,-50), 1.2, "✨", 32));
+      }
+    }
+
+    // ステージクリア判定
+    if (!this.stage.isFinal){
+      if (this.bossSpawned && this.boss && this.boss.dead){
+        this.state = "clear";
+        this.transitionTimer = 0;
+        Audio.sfx("win");
+        this.player.addScore(5000);
+      }
+    } else {
+      if (this.boss2Spawned && this.boss && this.boss.dead){
+        this.flashWhite = 1.5;
+        this.state = "ending";
+        this.endingTimer = 0;
+        Audio.sfx("win");
+        this.player.addScore(20000);
+      }
+    }
+
+    // 死体除去 + 画面外に離れすぎた雑魚を回収(メモリリーク防止)
+    const camLeft = this.cameraX - 400;
+    const camRight = this.cameraX + W + 400;
+    this.enemies = this.enemies.filter(e=>{
+      if (e.dead) return false;
+      if (e.isBoss) return true;
+      // プレイヤーから大きく離れ画面外に出た雑魚は除去
+      if (e.x + e.w < camLeft || e.x > camRight) return false;
+      // 画面上下に大きく外れた雑魚も除去
+      if (e.y + e.h < PLAY_TOP - 400 || e.y > PLAY_BOTTOM + 400) return false;
+      return true;
+    });
+    this.pProjectiles = this.pProjectiles.filter(p=>!p.dead);
+    this.eProjectiles = this.eProjectiles.filter(p=>!p.dead);
+    this.items = this.items.filter(i=>!i.dead);
+    this.particles = this.particles.filter(p=>!p.dead);
+
+    // カメラ追従
+    const target = clamp(this.player.x - W*0.35, 0, this.stage.length - W);
+    this.cameraX += (target - this.cameraX) * Math.min(1, dt*6);
+  }
+
+  draw(){
+    const ctx = this.ctx;
+    const t = performance.now()/1000;
+
+    // シェイクオフセット
+    const sx = this.shake>0 ? rand(-8,8) : 0;
+    const sy = this.shake>0 ? rand(-8,8) : 0;
+    ctx.save();
+    ctx.translate(sx, sy);
+
+    if (this.state === "title"){
+      this.drawTitle();
+    } else if (this.state === "ending"){
+      this.drawEnding();
+    } else {
+      this.renderer.drawBackground(this.stage, this.cameraX, t);
+      // チェックポイント描画
+      if (this.stage.checkpointX>0){
+        const cx = this.stage.checkpointX - this.cameraX;
+        if (cx > -80 && cx < W+80){
+          ctx.save();
+          ctx.font = `48px ${EMOJI_FONT}`;
+          ctx.textAlign="center"; ctx.textBaseline="middle";
+          ctx.fillText(this.checkpointReached?"⭐":"🕯️", cx, GROUND_Y - 40);
+          ctx.restore();
+        }
+      }
+      this.renderer.drawGround(this.stage, this.cameraX);
+
+      // ゴール扉
+      const goalX = this.stage.length - 80 - this.cameraX;
+      if (goalX > -80 && goalX < W+80){
+        ctx.save();
+        ctx.font = `64px ${EMOJI_FONT}`;
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        ctx.fillText("🚪", goalX, GROUND_Y-32);
+        ctx.restore();
+      }
+
+      // エンティティ
+      for (const it of this.items) it.draw(ctx, this.cameraX);
+      for (const e of this.enemies) e.draw(ctx, this.cameraX);
+      for (const p of this.pProjectiles) p.draw(ctx, this.cameraX);
+      for (const p of this.eProjectiles) p.draw(ctx, this.cameraX);
+      this.player.draw(ctx, this.cameraX);
+      for (const pa of this.particles) pa.draw(ctx, this.cameraX);
+
+      // HUD
+      this.renderer.drawHUD(this);
+
+      // ステージ開始演出 (最初の2秒)
+      if (this.stageTime < 2.5){
+        const a = this.stageTime<1.5 ? 1 : (2.5-this.stageTime)/1.0;
+        ctx.save();
+        ctx.fillStyle = `rgba(0,0,0,${0.5*a})`;
+        ctx.fillRect(0, H/2-80, W, 160);
+        ctx.fillStyle = `rgba(255,251,230,${a})`;
+        ctx.font = `bold 48px ${UI_FONT}`;
+        ctx.textAlign="center"; ctx.textBaseline="middle";
+        ctx.fillText(this.stage.name, W/2, H/2);
+        ctx.font = `bold 22px ${UI_FONT}`;
+        ctx.fillStyle = `rgba(255,200,80,${a})`;
+        ctx.fillText("― 千の徳を超えし者、ゆけ ―", W/2, H/2+40);
+        ctx.restore();
+      }
+    }
+
+    ctx.restore();
+
+    // 状態オーバーレイ
+    if (this.state === "pause") this.drawPause();
+    if (this.state === "clear") this.drawClear();
+    if (this.state === "over")  this.drawOver();
+
+    // 白フラッシュ
+    if (this.flashWhite>0){
+      ctx.save();
+      ctx.fillStyle = `rgba(255,255,255,${Math.min(1,this.flashWhite)})`;
+      ctx.fillRect(0,0,W,H);
+      ctx.restore();
+    }
+  }
+
+  drawTitle(){
+    const ctx = this.ctx;
+    // 背景: 紫→赤グラデ
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#0a0a0a"); g.addColorStop(1,"#3a0a3a");
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+    // 雷フラッシュ
+    if (Math.random()<0.01){
+      ctx.fillStyle="rgba(255,255,255,0.15)";
+      ctx.fillRect(0,0,W,H);
+    }
+
+    // 双月
+    ctx.save();
+    ctx.font = `200px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.globalAlpha=0.5;
+    ctx.fillText("🌑", W*0.3, H*0.3);
+    ctx.fillText("🌕", W*0.3+90, H*0.3);
+    ctx.restore();
+
+    // タイトル: 超千徳
+    ctx.save();
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    const titleY = H/2 - 110 + Math.sin(performance.now()/400)*4;
+    // 縁取り
+    ctx.font = `bold 140px ${UI_FONT}`;
+    ctx.lineWidth = 8; ctx.strokeStyle = "#000";
+    ctx.strokeText("超千徳", W/2, titleY);
+    // 本体
+    const tg = ctx.createLinearGradient(0, titleY-60, 0, titleY+60);
+    tg.addColorStop(0,"#ff6633"); tg.addColorStop(1,"#cc0033");
+    ctx.fillStyle = tg;
+    ctx.fillText("超千徳", W/2, titleY);
+    // サブタイトル
+    ctx.font = `bold 32px ${UI_FONT}`;
+    ctx.lineWidth = 4; ctx.strokeStyle = "#000";
+    ctx.strokeText("〜 魔界凱旋譚 〜", W/2, titleY+90);
+    ctx.fillStyle = "#fffbe6";
+    ctx.fillText("〜 魔界凱旋譚 〜", W/2, titleY+90);
+    // キャラ
+    ctx.font = `100px ${EMOJI_FONT}`;
+    ctx.fillText("🤺", W/2-100, titleY+200);
+    ctx.fillText("⚔️", W/2, titleY+200);
+    ctx.fillText("👹", W/2+100, titleY+200);
+    ctx.restore();
+
+    // PRESS ENTER
+    ctx.save();
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    const blink = Math.floor(this.menuBlink*2)%2===0;
+    ctx.font = `bold 34px ${UI_FONT}`;
+    if (blink){
+      ctx.lineWidth = 4; ctx.strokeStyle="#000";
+      ctx.strokeText("PRESS ENTER TO START", W/2, H-160);
+      ctx.fillStyle = "#ffcc00";
+      ctx.fillText("PRESS ENTER TO START", W/2, H-160);
+    }
+    ctx.font = `bold 18px ${UI_FONT}`;
+    ctx.fillStyle="#aaa";
+    ctx.fillText("← → 移動  /  ↑ ジャンプ  /  Z 攻撃  /  X 武器切替  /  Shift しゃがみ  /  Esc ポーズ  /  C 超千徳", W/2, H-90);
+    ctx.fillText("「超千徳流」剣術 ― 千の徳を超えし者の物語", W/2, H-60);
+    ctx.fillText("© 2026 超千徳製作所", W/2, H-30);
+    ctx.restore();
+  }
+
+  drawPause(){
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.65)"; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = "#1a1033";
+    ctx.fillRect(W/2-300, H/2-180, 600, 360);
+    ctx.strokeStyle = "#ffd700"; ctx.lineWidth=4;
+    ctx.strokeRect(W/2-300, H/2-180, 600, 360);
+    ctx.font = `bold 60px ${UI_FONT}`;
+    ctx.fillStyle = "#fffbe6";
+    ctx.textAlign = "center"; ctx.textBaseline="middle";
+    ctx.fillText("⏸ PAUSE", W/2, H/2-100);
+    ctx.font = `bold 26px ${UI_FONT}`;
+    ctx.fillText("Esc キーで再開", W/2, H/2+0);
+    ctx.fillStyle = "#aaa";
+    ctx.font = `bold 20px ${UI_FONT}`;
+    ctx.fillText("← → 移動  /  ↑ ジャンプ  /  Z 攻撃", W/2, H/2+60);
+    ctx.fillText("X 武器切替  /  Shift しゃがみ  /  C 超千徳", W/2, H/2+90);
+    ctx.restore();
+  }
+
+  drawClear(){
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.65)"; ctx.fillRect(0,0,W,H);
+    ctx.font = `bold 80px ${UI_FONT}`;
+    ctx.lineWidth=6; ctx.strokeStyle="#000";
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.strokeText("STAGE CLEAR!", W/2, H/2-80);
+    ctx.fillStyle = "#ffd700";
+    ctx.fillText("STAGE CLEAR!", W/2, H/2-80);
+    ctx.font = `bold 40px ${UI_FONT}`;
+    ctx.fillStyle = "#fffbe6";
+    ctx.fillText("✨ " + this.stage.name + " 撃破 ✨", W/2, H/2);
+    ctx.font = `bold 28px ${UI_FONT}`;
+    ctx.fillText("SCORE: " + String(this.player.score).padStart(7,"0"), W/2, H/2+60);
+    if (this.transitionTimer > 1.5){
+      const blink = Math.floor(this.menuBlink*2)%2===0;
+      if (blink){
+        ctx.fillStyle="#ffcc00";
+        ctx.font=`bold 22px ${UI_FONT}`;
+        ctx.fillText("PRESS ENTER で次のステージへ", W/2, H/2+140);
+      }
+    }
+    ctx.restore();
+  }
+
+  drawOver(){
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = `rgba(0,0,0,${Math.min(0.85, this.transitionTimer*0.5)})`;
+    ctx.fillRect(0,0,W,H);
+    ctx.font = `200px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.save();
+    ctx.translate(W/2, H/2-80);
+    ctx.rotate(Math.sin(this.menuBlink*1.2)*0.08);
+    ctx.fillText("💀", 0, 0);
+    ctx.restore();
+    ctx.font = `bold 80px ${UI_FONT}`;
+    ctx.lineWidth=6; ctx.strokeStyle="#000";
+    ctx.strokeText("GAME OVER", W/2, H/2+40);
+    ctx.fillStyle = "#ff3344";
+    ctx.fillText("GAME OVER", W/2, H/2+40);
+    ctx.font = `bold 28px ${UI_FONT}`;
+    ctx.fillStyle = "#fffbe6";
+    ctx.fillText("到達: " + this.stage.name, W/2, H/2+100);
+    ctx.fillText("SCORE: " + String(this.player.score).padStart(7,"0"), W/2, H/2+140);
+    if (this.transitionTimer > 1.5){
+      const blink = Math.floor(this.menuBlink*2)%2===0;
+      if (blink){
+        ctx.fillStyle="#ffcc00";
+        ctx.font=`bold 22px ${UI_FONT}`;
+        ctx.fillText("PRESS ENTER でタイトルに戻る", W/2, H/2+200);
+      }
+    }
+    ctx.restore();
+  }
+
+  drawEnding(){
+    const ctx = this.ctx;
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#3a0a3a"); g.addColorStop(0.7,"#cc6633"); g.addColorStop(1,"#ffcc66");
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+    // 朝焼け＆主人公
+    ctx.save();
+    ctx.font = `160px ${EMOJI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillText("🌅", W*0.78, H*0.3);
+    ctx.font = `120px ${EMOJI_FONT}`;
+    ctx.fillText("🤺", W/2-60, H*0.65);
+    ctx.fillText("👸", W/2+60, H*0.65);
+    ctx.restore();
+
+    // テキスト
+    const lines = [
+      "双月が引き裂かれ、空に再び一つの月が昇った。",
+      "千徳一刀斎は、姫巫女 月詠を抱き上げた。",
+      "「遅うなり申した、月詠殿」",
+      "",
+      "千の徳を超えし者、再び立たんとす。",
+      "",
+      "― 双月、いまだ朽ちず ―",
+    ];
+    ctx.save();
+    ctx.font = `bold 26px ${UI_FONT}`;
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.lineWidth=4; ctx.strokeStyle="#000";
+    for (let i=0;i<lines.length;i++){
+      const showAt = i*1.2;
+      if (this.endingTimer < showAt) continue;
+      const a = Math.min(1, (this.endingTimer - showAt)*1.5);
+      ctx.fillStyle = `rgba(255,251,230,${a})`;
+      ctx.strokeStyle = `rgba(0,0,0,${a})`;
+      ctx.strokeText(lines[i], W/2, H*0.18 + i*36);
+      ctx.fillText(lines[i], W/2, H*0.18 + i*36);
+    }
+    // FIN.
+    if (this.endingTimer > 9){
+      const a = Math.min(1, (this.endingTimer-9)*1.0);
+      ctx.font = `bold 120px ${UI_FONT}`;
+      ctx.lineWidth=8; ctx.strokeStyle=`rgba(0,0,0,${a})`;
+      ctx.strokeText("FIN.", W/2, H*0.88);
+      ctx.fillStyle = `rgba(255,215,0,${a})`;
+      ctx.fillText("FIN.", W/2, H*0.88);
+    }
+    if (this.endingTimer > 12){
+      const blink = Math.floor(this.menuBlink*2)%2===0;
+      if (blink){
+        ctx.font = `bold 22px ${UI_FONT}`;
+        ctx.fillStyle="#fff";
+        ctx.fillText("PRESS ENTER でタイトルへ", W/2, H-30);
+      }
+    }
+    ctx.restore();
+  }
+}
+
+// ────────────────────────────────────────────────
+// メインループ (固定タイムステップ)
+// ────────────────────────────────────────────────
+const canvas = document.getElementById("screen");
+Input.init();
+const game = new Game(canvas);
+
+let lastTime = performance.now();
+let acc = 0;
+const STEP = 1/60;
+
+function loop(now){
+  const delta = Math.min(0.1, (now - lastTime)/1000);
+  lastTime = now;
+  acc += delta;
+  while (acc >= STEP){
+    game.update(STEP);
+    Input.endFrame();
+    acc -= STEP;
+  }
+  game.draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame((t)=>{ lastTime = t; loop(t); });
+
+// 初回操作でAudioContextを起動
+addEventListener("keydown", () => Audio.ensure(), { once:false });
+addEventListener("pointerdown", () => Audio.ensure(), { once:false });
+
+// ─────────────────────────────────────────────────────────
+// TUNING - ゲーム全体のバランス調整定数まとめ
+// (※ 主要な物理パラメータはコード中に直接埋め込んでいるが、
+//   外部から書き換えやすいよう代表値をここで明示)
+// ─────────────────────────────────────────────────────────
+const TUNING = {
+  gravity: 1800,
+  jumpVelocity: 720,
+  walkSpeedArmor: 260,
+  walkSpeedBare:  286,
+  cameraEase: 6,
+  scrollSpeed: 1.0,
+  invulnTime: 1.5,
+  superModeDuration: 6.0,
+  tokuGain: 10,
+  // 武器DPS = dmg / cd
+  weaponDPS: WEAPONS.map(w => ({ id:w.id, dps: (w.dmg/w.cd).toFixed(2) })),
+  // 敵HP
+  enemyHP: Object.fromEntries(Object.entries(ENEMY_DEFS).map(([k,v])=>[k,v.hp])),
+  stageLength: STAGES.map(s=>s.length),
+  livesStart: 3,
+};
+window.__SENTOKU_TUNING__ = TUNING;
+
+})();
+</script>
+</body>
+</html>
