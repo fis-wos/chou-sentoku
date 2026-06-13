@@ -341,7 +341,200 @@ class AudioMgr {
     }
   }
 }
+
+// ────────────────────────────────────────────────
+// BGM ジェネレーター（ロマサガ3風 / SFC音源風 / Web Audio）
+// メロディ:square / 裏メロ:triangle / ベース:triangle / ドラム:noise+sine
+// ────────────────────────────────────────────────
+const _NOTE_FREQ = { "C":261.63,"C#":277.18,"D":293.66,"D#":311.13,"E":329.63,"F":349.23,"F#":369.99,"G":392.00,"G#":415.30,"A":440.00,"A#":466.16,"B":493.88 };
+function note(name){
+  if (!name) return 0;
+  const m = name.match(/^([A-G][#b]?)(-?\d+)$/);
+  if (!m) return 0;
+  const oct = parseInt(m[2]) - 4;
+  return _NOTE_FREQ[m[1]] * Math.pow(2, oct);
+}
+const N = note;
+// 各曲: 32ステップ(=2小節)を最小単位、bpmは16分音符換算
+const SONGS = {
+  title: {
+    bpm: 96, vol: 0.16,
+    melody: [
+      N("A4"),0,0,0, N("C5"),0,0,0, N("E5"),0,N("D5"),0, N("C5"),0,0,0,
+      N("B4"),0,0,0, N("G4"),0,0,0, N("A4"),0,0,0, 0,0,0,0,
+    ],
+    bass: [
+      N("A2"),0,0,0, N("A2"),0,0,0, N("F2"),0,0,0, N("F2"),0,0,0,
+      N("G2"),0,0,0, N("G2"),0,0,0, N("E2"),0,0,0, N("E2"),0,0,0,
+    ],
+    drum: "k...h...s...h...k.k.h...s...h..k",
+  },
+  battle: {
+    // ロマサガ3「四魔貴族」風: A minor、攻撃的ベース、疾走メロディ
+    bpm: 168, vol: 0.18,
+    melody: [
+      N("A4"),0,N("C5"),0, N("E5"),0,N("A5"),0, N("G5"),0,N("E5"),0, N("C5"),0,N("A4"),0,
+      N("F4"),0,N("A4"),0, N("C5"),0,N("E5"),0, N("D5"),0,N("B4"),0, N("A4"),0,N("G4"),0,
+    ],
+    harmony: [
+      N("E4"),0,0,0, N("A4"),0,0,0, N("E4"),0,0,0, N("A4"),0,0,0,
+      N("C4"),0,0,0, N("F4"),0,0,0, N("E4"),0,0,0, N("D4"),0,0,0,
+    ],
+    bass: [
+      N("A2"),0,N("A2"),0, N("E2"),0,N("A2"),0, N("A2"),0,N("A2"),0, N("E2"),0,N("A2"),0,
+      N("F2"),0,N("F2"),0, N("C3"),0,N("F2"),0, N("E2"),0,N("E2"),0, N("B2"),0,N("E2"),0,
+    ],
+    drum: "k.h.s.h.k.h.s.h.k.h.s.h.kkh.s.h.",
+  },
+  boss: {
+    // ロマサガ3「ラストバトル」風: 高速・劇的展開
+    bpm: 184, vol: 0.20,
+    melody: [
+      N("A4"),0,N("A4"),N("C5"), N("D5"),0,N("E5"),0, N("G5"),0,N("F5"),N("E5"), N("D5"),0,N("C5"),0,
+      N("B4"),0,N("A4"),N("G4"), N("A4"),0,N("E4"),0, N("F4"),N("G4"),N("A4"),N("B4"), N("C5"),0,N("D5"),0,
+    ],
+    harmony: [
+      N("C4"),0,N("E4"),0, N("F4"),0,N("A4"),0, N("B4"),0,N("A4"),0, N("F4"),0,N("E4"),0,
+      N("D4"),0,N("C4"),0, N("E4"),0,N("B3"),0, N("A3"),0,N("C4"),0, N("E4"),0,N("F4"),0,
+    ],
+    bass: [
+      N("A2"),0,N("E2"),0, N("A2"),0,N("E2"),0, N("F2"),0,N("C3"),0, N("F2"),0,N("G2"),0,
+      N("E2"),0,N("B1"),0, N("E2"),0,N("B1"),0, N("F2"),0,N("D3"),0, N("A2"),0,N("E2"),0,
+    ],
+    drum: "kkh.s.h.kkh.s.h.kkh.s.h.kkh.s.hk",
+  },
+  ending: {
+    // 感動の凱旋: ゆったり長調寄り
+    bpm: 88, vol: 0.16,
+    melody: [
+      N("A4"),0,0,0, N("E5"),0,0,0, N("A5"),0,0,0, N("G5"),0,N("E5"),0,
+      N("F5"),0,0,0, N("C5"),0,0,0, N("D5"),0,0,0, N("A4"),0,0,0,
+    ],
+    harmony: [
+      N("E4"),0,0,0, N("A4"),0,0,0, N("E4"),0,0,0, N("C5"),0,N("A4"),0,
+      N("A4"),0,0,0, N("E4"),0,0,0, N("F4"),0,0,0, N("E4"),0,0,0,
+    ],
+    bass: [
+      N("A2"),0,0,0, N("A2"),0,0,0, N("E2"),0,0,0, N("E2"),0,0,0,
+      N("F2"),0,0,0, N("F2"),0,0,0, N("G2"),0,0,0, N("G2"),0,0,0,
+    ],
+    drum: "k...h...s...h...k...h...s...h...",
+  },
+};
+
+class BGM {
+  constructor(audioMgr){
+    this.audio = audioMgr;
+    this.song = null;
+    this.songName = null;
+    this.step = 0;
+    this.nextTime = 0;
+    this.gain = null;
+    this._timer = null;
+  }
+  start(name){
+    if (this.songName === name) return;
+    this.stop();
+    const song = SONGS[name];
+    if (!song) return;
+    this.audio.ensure();
+    const ctx = this.audio.ctx;
+    if (!ctx) return;
+    this.song = song;
+    this.songName = name;
+    this.step = 0;
+    this.nextTime = ctx.currentTime + 0.1;
+    this.gain = ctx.createGain();
+    this.gain.gain.value = song.vol || 0.15;
+    this.gain.connect(ctx.destination);
+    this._tick();
+  }
+  stop(){
+    if (this._timer){ clearTimeout(this._timer); this._timer = null; }
+    if (this.gain){
+      try {
+        const ctx = this.audio.ctx;
+        this.gain.gain.setValueAtTime(this.gain.gain.value, ctx.currentTime);
+        this.gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+        const g = this.gain;
+        setTimeout(()=>{ try{ g.disconnect(); }catch(e){} }, 300);
+      } catch(e){}
+      this.gain = null;
+    }
+    this.song = null;
+    this.songName = null;
+  }
+  _tick(){
+    if (!this.song) return;
+    const ctx = this.audio.ctx;
+    if (!ctx){ return; }
+    const stepDur = 60 / this.song.bpm / 4; // 16分音符長
+    while (this.nextTime < ctx.currentTime + 0.15){
+      this._scheduleStep(this.step, this.nextTime, stepDur);
+      this.step++;
+      this.nextTime += stepDur;
+    }
+    this._timer = setTimeout(() => this._tick(), 30);
+  }
+  _scheduleStep(step, t, dur){
+    const s = this.song;
+    const idx = step % 32;
+    if (s.melody && s.melody[idx])  this._playTone(s.melody[idx],  t, dur, "square",   0.07);
+    if (s.harmony && s.harmony[idx]) this._playTone(s.harmony[idx], t, dur*2, "triangle", 0.05);
+    if (s.bass && s.bass[idx])      this._playTone(s.bass[idx],    t, dur*1.5, "triangle", 0.12);
+    if (s.drum){
+      const ch = s.drum.charAt(idx);
+      if (ch === "k") this._kick(t);
+      else if (ch === "s") this._snare(t);
+      else if (ch === "h") this._hihat(t);
+    }
+  }
+  _playTone(freq, t, dur, type, vol){
+    const ctx = this.audio.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur*0.95);
+    o.connect(g).connect(this.gain);
+    o.start(t); o.stop(t + dur*1.05);
+  }
+  _kick(t){
+    const ctx = this.audio.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(140, t);
+    o.frequency.exponentialRampToValueAtTime(40, t+0.10);
+    g.gain.setValueAtTime(0.20, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t+0.13);
+    o.connect(g).connect(this.gain);
+    o.start(t); o.stop(t+0.16);
+  }
+  _snare(t){
+    const ctx = this.audio.ctx;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate*0.08), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i=0;i<d.length;i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+    const s = ctx.createBufferSource(); s.buffer = buf;
+    const g = ctx.createGain(); g.gain.value = 0.10;
+    s.connect(g).connect(this.gain);
+    s.start(t);
+  }
+  _hihat(t){
+    const ctx = this.audio.ctx;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate*0.03), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i=0;i<d.length;i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+    const s = ctx.createBufferSource(); s.buffer = buf;
+    const g = ctx.createGain(); g.gain.value = 0.04;
+    s.connect(g).connect(this.gain);
+    s.start(t);
+  }
+}
 const Audio = new AudioMgr();
+const Bgm = new BGM(Audio);
 
 // ────────────────────────────────────────────────
 // ユーティリティ
@@ -2034,6 +2227,22 @@ class Game {
   update(dt){
     this.menuBlink += dt;
     if (this.confirmDelay>0) this.confirmDelay -= dt;
+
+    // BGM切替: 状態とボス出現に応じて自動選曲
+    let wantBgm = null;
+    if (this.state === "title") wantBgm = "title";
+    else if (this.state === "ending") wantBgm = "ending";
+    else if (this.state === "play"){
+      // ボス出現中 or ラスボス専用ステージ
+      if ((this.boss && !this.boss.dead) || (this.stage && this.stage.isFinal)) wantBgm = "boss";
+      else wantBgm = "battle";
+    }
+    // pause/clear/over はBGM維持（または stop）
+    if (this.state === "pause"){ /* 現状維持 */ }
+    else if (this.state === "over"){ wantBgm = null; }
+    else if (this.state === "clear"){ wantBgm = null; }
+    if (wantBgm === null && Bgm.songName) Bgm.stop();
+    else if (wantBgm && Bgm.songName !== wantBgm) Bgm.start(wantBgm);
 
     // ESCポーズ
     if ((this.state==="play"||this.state==="pause") && Input.consumePressed("Escape")){
