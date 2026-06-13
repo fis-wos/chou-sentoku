@@ -18,6 +18,9 @@
     color: #fffbe6;
     font-family: "DotGothic16","Press Start 2P","Hiragino Sans","Yu Gothic",sans-serif;
     user-select: none; -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+    touch-action: none;
   }
   #wrap {
     width: 100vw; height: 100vh; display: flex;
@@ -198,14 +201,19 @@ const Input = {
       };
       const onUp = (ev) => {
         if (!activePtr.has(ev.pointerId)) return;
-        ev.preventDefault();
         setKeyUp(activePtr.get(ev.pointerId));
         activePtr.delete(ev.pointerId);
       };
       touchRoot.addEventListener("pointerdown", onDown, { passive: false });
       touchRoot.addEventListener("pointermove", onMove, { passive: false });
-      touchRoot.addEventListener("pointerup",   onUp,   { passive: false });
-      touchRoot.addEventListener("pointercancel", onUp, { passive: false });
+      // pointerup/cancel は touchRoot 外でも捕捉する必要があるので window で受ける
+      window.addEventListener("pointerup", onUp, { passive: false });
+      // pointercancel は iOS Safari が長押し時に勝手に発火するため「無視」
+      // 指が本当に離れた時は pointerup が来る。activePtrだけ清掃
+      window.addEventListener("pointercancel", (ev) => {
+        // activePtr に残ったままでも次の pointerdown で再マップされる
+        // ボタンキーは離さない（誤解除防止）
+      }, { passive: false });
       // ブラウザの長押し選択メニュー抑制
       touchRoot.addEventListener("contextmenu", e => e.preventDefault());
     }
@@ -2248,6 +2256,20 @@ class Game {
 
       // HUD
       this.renderer.drawHUD(this);
+      // デバッグ: ?debug=1 で押されているキー一覧を画面右下に表示
+      if (location.search.includes("debug=1")){
+        ctx.save();
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(W-360, H-90, 350, 80);
+        ctx.fillStyle = "#ffff66";
+        ctx.font = "bold 18px monospace";
+        ctx.textAlign = "left"; ctx.textBaseline = "top";
+        const keysStr = Array.from(Input.keys).join(", ") || "(none)";
+        ctx.fillText("KEYS: " + keysStr, W-350, H-80);
+        ctx.fillText("crouch: " + this.player.crouch + " onGround: " + this.player.onGround, W-350, H-58);
+        ctx.fillText("vx: " + this.player.vx.toFixed(0) + " vy: " + this.player.vy.toFixed(0), W-350, H-36);
+        ctx.restore();
+      }
 
       // ステージ開始演出 (最初の2秒)
       if (this.stageTime < 2.5){
