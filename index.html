@@ -52,30 +52,30 @@
     position: absolute;
     pointer-events: auto;
     display: flex; align-items: center; justify-content: center;
-    background: rgba(40, 20, 60, 0.55);
-    border: 2px solid rgba(255, 215, 0, 0.65);
+    background: rgba(40, 20, 60, 0.22);
+    border: 2px solid rgba(255, 215, 0, 0.45);
     color: #fffbe6;
     font-family: "DotGothic16","Hiragino Sans","Yu Gothic",sans-serif;
     font-weight: 700;
-    text-shadow: 1px 1px 0 #000;
+    text-shadow: 1px 1px 2px #000, -1px -1px 2px #000;
     border-radius: 16px;
-    box-shadow: 0 0 8px rgba(0,0,0,0.6) inset, 0 2px 4px rgba(0,0,0,0.5);
+    box-shadow: 0 0 6px rgba(0,0,0,0.35) inset, 0 1px 3px rgba(0,0,0,0.3);
     transition: transform 50ms, background 50ms;
   }
   .tbtn.sq { border-radius: 12px; }
-  .tbtn.active { background: rgba(170, 0, 51, 0.9); transform: scale(0.95); }
+  .tbtn.active { background: rgba(170, 0, 51, 0.55); transform: scale(0.95); }
   /* ─── 左下: 移動 ─── 大きめ角丸・隣接配置で押しやすく */
   #tL { left: 13vmin; bottom: 4vmin;  width: 22vmin; height: 18vmin; font-size: 10vmin; }
   #tR { left: 36vmin; bottom: 4vmin;  width: 22vmin; height: 18vmin; font-size: 10vmin; }
   #tD { left: 1vmin;  bottom: 4vmin;  width: 11vmin; height: 18vmin; font-size: 4vmin; }
   /* ─── 右下: アクション ─── 攻撃・ジャンプは大型、武器・超は小さめ補助 */
-  #tA { right: 4vmin;  bottom: 4vmin;  width: 22vmin; height: 18vmin; font-size: 9vmin; background: rgba(120,30,30,0.65); border-color: rgba(255,140,140,0.9); }
-  #tJ { right: 27vmin; bottom: 4vmin;  width: 22vmin; height: 18vmin; font-size: 8vmin; background: rgba(30,90,40,0.65); border-color: rgba(140,255,160,0.9); }
+  #tA { right: 4vmin;  bottom: 4vmin;  width: 22vmin; height: 18vmin; font-size: 9vmin; background: rgba(120,30,30,0.30); border-color: rgba(255,140,140,0.55); }
+  #tJ { right: 27vmin; bottom: 4vmin;  width: 22vmin; height: 18vmin; font-size: 8vmin; background: rgba(30,90,40,0.30);  border-color: rgba(140,255,160,0.55); }
   #tW { right: 4vmin;  bottom: 24vmin; width: 16vmin; height: 11vmin; font-size: 4.5vmin; }
-  #tS { right: 22vmin; bottom: 24vmin; width: 16vmin; height: 11vmin; font-size: 5vmin;   background: rgba(110,80,0,0.65); border-color: gold; }
+  #tS { right: 22vmin; bottom: 24vmin; width: 16vmin; height: 11vmin; font-size: 5vmin;   background: rgba(110,80,0,0.30); border-color: rgba(255,215,0,0.7); }
   /* ─── 上部: ポーズ/Enter ─── */
   #tP { right: 2vmin; top: 2vmin; width: 12vmin; height: 9vmin; font-size: 5vmin; border-radius: 10px; }
-  #tE { left: 50%; transform: translateX(-50%); top: 2vmin; width: 28vmin; height: 9vmin; font-size: 4.5vmin; border-radius: 10px; background: rgba(0,80,120,0.6); }
+  #tE { left: 50%; transform: translateX(-50%); top: 2vmin; width: 28vmin; height: 9vmin; font-size: 4.5vmin; border-radius: 10px; background: rgba(0,80,120,0.30); }
 </style>
 </head>
 <body>
